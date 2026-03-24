@@ -8,6 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		E0390A6C2F72E4F900715CB0 /* FaceVault.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E0390A602F72E4F900715CB0 /* FaceVault.framework */; };
+		E0390B2F2F72F4F700715CB0 /* FaceVault.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E0390A602F72E4F900715CB0 /* FaceVault.framework */; };
+		E0390B302F72F4F700715CB0 /* FaceVault.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = E0390A602F72E4F900715CB0 /* FaceVault.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -18,22 +20,99 @@
 			remoteGlobalIDString = E0390A5F2F72E4F900715CB0;
 			remoteInfo = FaceVault;
 		};
+		E0390A942F72E65B00715CB0 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E0390A572F72E4F900715CB0 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E0390A7D2F72E65900715CB0;
+			remoteInfo = FaceVaultDemo;
+		};
+		E0390A9E2F72E65B00715CB0 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E0390A572F72E4F900715CB0 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E0390A7D2F72E65900715CB0;
+			remoteInfo = FaceVaultDemo;
+		};
+		E0390B312F72F4F700715CB0 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E0390A572F72E4F900715CB0 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E0390A5F2F72E4F900715CB0;
+			remoteInfo = FaceVault;
+		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		E0390B332F72F4F700715CB0 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				E0390B302F72F4F700715CB0 /* FaceVault.framework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		E0390A602F72E4F900715CB0 /* FaceVault.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = FaceVault.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		E0390A6B2F72E4F900715CB0 /* FaceVaultTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FaceVaultTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		E0390A7E2F72E65900715CB0 /* FaceVaultDemo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FaceVaultDemo.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		E0390A932F72E65B00715CB0 /* FaceVaultDemoTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FaceVaultDemoTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		E0390A9D2F72E65B00715CB0 /* FaceVaultDemoUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FaceVaultDemoUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		E0390AA52F72E65B00715CB0 /* Exceptions for "FaceVaultDemo" folder in "FaceVaultDemo" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = E0390A7D2F72E65900715CB0 /* FaceVaultDemo */;
+		};
+		E0390AE12F72F1F900715CB0 /* Exceptions for "FaceVault" folder in "FaceVault" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			publicHeaders = (
+				FaceVault.h,
+				FaceVaultMatcherBridge.h,
+			);
+			target = E0390A5F2F72E4F900715CB0 /* FaceVault */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		E0390A622F72E4F900715CB0 /* FaceVault */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				E0390AE12F72F1F900715CB0 /* Exceptions for "FaceVault" folder in "FaceVault" target */,
+			);
 			path = FaceVault;
 			sourceTree = "<group>";
 		};
 		E0390A6F2F72E4F900715CB0 /* FaceVaultTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = FaceVaultTests;
+			sourceTree = "<group>";
+		};
+		E0390A7F2F72E65900715CB0 /* FaceVaultDemo */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				E0390AA52F72E65B00715CB0 /* Exceptions for "FaceVaultDemo" folder in "FaceVaultDemo" target */,
+			);
+			path = FaceVaultDemo;
+			sourceTree = "<group>";
+		};
+		E0390A962F72E65B00715CB0 /* FaceVaultDemoTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = FaceVaultDemoTests;
+			sourceTree = "<group>";
+		};
+		E0390AA02F72E65B00715CB0 /* FaceVaultDemoUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = FaceVaultDemoUITests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -54,6 +133,28 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		E0390A7B2F72E65900715CB0 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E0390B2F2F72F4F700715CB0 /* FaceVault.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E0390A902F72E65B00715CB0 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E0390A9A2F72E65B00715CB0 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -62,6 +163,10 @@
 			children = (
 				E0390A622F72E4F900715CB0 /* FaceVault */,
 				E0390A6F2F72E4F900715CB0 /* FaceVaultTests */,
+				E0390A7F2F72E65900715CB0 /* FaceVaultDemo */,
+				E0390A962F72E65B00715CB0 /* FaceVaultDemoTests */,
+				E0390AA02F72E65B00715CB0 /* FaceVaultDemoUITests */,
+				E0390B2E2F72F4F700715CB0 /* Frameworks */,
 				E0390A612F72E4F900715CB0 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -71,8 +176,18 @@
 			children = (
 				E0390A602F72E4F900715CB0 /* FaceVault.framework */,
 				E0390A6B2F72E4F900715CB0 /* FaceVaultTests.xctest */,
+				E0390A7E2F72E65900715CB0 /* FaceVaultDemo.app */,
+				E0390A932F72E65B00715CB0 /* FaceVaultDemoTests.xctest */,
+				E0390A9D2F72E65B00715CB0 /* FaceVaultDemoUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		E0390B2E2F72F4F700715CB0 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -134,6 +249,76 @@
 			productReference = E0390A6B2F72E4F900715CB0 /* FaceVaultTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		E0390A7D2F72E65900715CB0 /* FaceVaultDemo */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E0390AA62F72E65B00715CB0 /* Build configuration list for PBXNativeTarget "FaceVaultDemo" */;
+			buildPhases = (
+				E0390A7A2F72E65900715CB0 /* Sources */,
+				E0390A7B2F72E65900715CB0 /* Frameworks */,
+				E0390A7C2F72E65900715CB0 /* Resources */,
+				E0390B332F72F4F700715CB0 /* Embed Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				E0390B322F72F4F700715CB0 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				E0390A7F2F72E65900715CB0 /* FaceVaultDemo */,
+			);
+			name = FaceVaultDemo;
+			packageProductDependencies = (
+			);
+			productName = FaceVaultDemo;
+			productReference = E0390A7E2F72E65900715CB0 /* FaceVaultDemo.app */;
+			productType = "com.apple.product-type.application";
+		};
+		E0390A922F72E65B00715CB0 /* FaceVaultDemoTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E0390AA92F72E65B00715CB0 /* Build configuration list for PBXNativeTarget "FaceVaultDemoTests" */;
+			buildPhases = (
+				E0390A8F2F72E65B00715CB0 /* Sources */,
+				E0390A902F72E65B00715CB0 /* Frameworks */,
+				E0390A912F72E65B00715CB0 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				E0390A952F72E65B00715CB0 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				E0390A962F72E65B00715CB0 /* FaceVaultDemoTests */,
+			);
+			name = FaceVaultDemoTests;
+			packageProductDependencies = (
+			);
+			productName = FaceVaultDemoTests;
+			productReference = E0390A932F72E65B00715CB0 /* FaceVaultDemoTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		E0390A9C2F72E65B00715CB0 /* FaceVaultDemoUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E0390AAC2F72E65B00715CB0 /* Build configuration list for PBXNativeTarget "FaceVaultDemoUITests" */;
+			buildPhases = (
+				E0390A992F72E65B00715CB0 /* Sources */,
+				E0390A9A2F72E65B00715CB0 /* Frameworks */,
+				E0390A9B2F72E65B00715CB0 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				E0390A9F2F72E65B00715CB0 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				E0390AA02F72E65B00715CB0 /* FaceVaultDemoUITests */,
+			);
+			name = FaceVaultDemoUITests;
+			packageProductDependencies = (
+			);
+			productName = FaceVaultDemoUITests;
+			productReference = E0390A9D2F72E65B00715CB0 /* FaceVaultDemoUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -146,9 +331,21 @@
 				TargetAttributes = {
 					E0390A5F2F72E4F900715CB0 = {
 						CreatedOnToolsVersion = 26.0.1;
+						LastSwiftMigration = 2600;
 					};
 					E0390A6A2F72E4F900715CB0 = {
 						CreatedOnToolsVersion = 26.0.1;
+					};
+					E0390A7D2F72E65900715CB0 = {
+						CreatedOnToolsVersion = 26.0.1;
+					};
+					E0390A922F72E65B00715CB0 = {
+						CreatedOnToolsVersion = 26.0.1;
+						TestTargetID = E0390A7D2F72E65900715CB0;
+					};
+					E0390A9C2F72E65B00715CB0 = {
+						CreatedOnToolsVersion = 26.0.1;
+						TestTargetID = E0390A7D2F72E65900715CB0;
 					};
 				};
 			};
@@ -168,6 +365,9 @@
 			targets = (
 				E0390A5F2F72E4F900715CB0 /* FaceVault */,
 				E0390A6A2F72E4F900715CB0 /* FaceVaultTests */,
+				E0390A7D2F72E65900715CB0 /* FaceVaultDemo */,
+				E0390A922F72E65B00715CB0 /* FaceVaultDemoTests */,
+				E0390A9C2F72E65B00715CB0 /* FaceVaultDemoUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -181,6 +381,27 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		E0390A692F72E4F900715CB0 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E0390A7C2F72E65900715CB0 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E0390A912F72E65B00715CB0 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E0390A9B2F72E65B00715CB0 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -204,6 +425,27 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		E0390A7A2F72E65900715CB0 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E0390A8F2F72E65B00715CB0 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E0390A992F72E65B00715CB0 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -211,6 +453,21 @@
 			isa = PBXTargetDependency;
 			target = E0390A5F2F72E4F900715CB0 /* FaceVault */;
 			targetProxy = E0390A6D2F72E4F900715CB0 /* PBXContainerItemProxy */;
+		};
+		E0390A952F72E65B00715CB0 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = E0390A7D2F72E65900715CB0 /* FaceVaultDemo */;
+			targetProxy = E0390A942F72E65B00715CB0 /* PBXContainerItemProxy */;
+		};
+		E0390A9F2F72E65B00715CB0 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = E0390A7D2F72E65900715CB0 /* FaceVaultDemo */;
+			targetProxy = E0390A9E2F72E65B00715CB0 /* PBXContainerItemProxy */;
+		};
+		E0390B322F72F4F700715CB0 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = E0390A5F2F72E4F900715CB0 /* FaceVault */;
+			targetProxy = E0390B312F72F4F700715CB0 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -346,8 +603,10 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUILD_LIBRARY_FOR_DISTRIBUTION = YES;
+				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEFINES_MODULE = YES;
 				DEVELOPMENT_TEAM = VVS3USCHVC;
 				DYLIB_COMPATIBILITY_VERSION = 1;
 				DYLIB_CURRENT_VERSION = 1;
@@ -372,6 +631,7 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_INSTALL_MODULE = YES;
 				SWIFT_INSTALL_OBJC_HEADER = NO;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -382,8 +642,10 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUILD_LIBRARY_FOR_DISTRIBUTION = YES;
+				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEFINES_MODULE = YES;
 				DEVELOPMENT_TEAM = VVS3USCHVC;
 				DYLIB_COMPATIBILITY_VERSION = 1;
 				DYLIB_CURRENT_VERSION = 1;
@@ -452,6 +714,154 @@
 			};
 			name = Release;
 		};
+		E0390AA72F72E65B00715CB0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = VVS3USCHVC;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = FaceVaultDemo/Info.plist;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
+				INFOPLIST_KEY_UIMainStoryboardFile = Main;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ahmad.iosapp.FaceVaultDemo;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		E0390AA82F72E65B00715CB0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = VVS3USCHVC;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = FaceVaultDemo/Info.plist;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
+				INFOPLIST_KEY_UIMainStoryboardFile = Main;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ahmad.iosapp.FaceVaultDemo;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		E0390AAA2F72E65B00715CB0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = VVS3USCHVC;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ahmad.iosapp.FaceVaultDemoTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/FaceVaultDemo.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/FaceVaultDemo";
+			};
+			name = Debug;
+		};
+		E0390AAB2F72E65B00715CB0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = VVS3USCHVC;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ahmad.iosapp.FaceVaultDemoTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/FaceVaultDemo.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/FaceVaultDemo";
+			};
+			name = Release;
+		};
+		E0390AAD2F72E65B00715CB0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = VVS3USCHVC;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ahmad.iosapp.FaceVaultDemoUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = FaceVaultDemo;
+			};
+			name = Debug;
+		};
+		E0390AAE2F72E65B00715CB0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = VVS3USCHVC;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ahmad.iosapp.FaceVaultDemoUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = FaceVaultDemo;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -478,6 +888,33 @@
 			buildConfigurations = (
 				E0390A782F72E4F900715CB0 /* Debug */,
 				E0390A792F72E4F900715CB0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		E0390AA62F72E65B00715CB0 /* Build configuration list for PBXNativeTarget "FaceVaultDemo" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E0390AA72F72E65B00715CB0 /* Debug */,
+				E0390AA82F72E65B00715CB0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		E0390AA92F72E65B00715CB0 /* Build configuration list for PBXNativeTarget "FaceVaultDemoTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E0390AAA2F72E65B00715CB0 /* Debug */,
+				E0390AAB2F72E65B00715CB0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		E0390AAC2F72E65B00715CB0 /* Build configuration list for PBXNativeTarget "FaceVaultDemoUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E0390AAD2F72E65B00715CB0 /* Debug */,
+				E0390AAE2F72E65B00715CB0 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
