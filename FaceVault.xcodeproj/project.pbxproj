@@ -75,6 +75,9 @@
 		};
 		E0390AE12F72F1F900715CB0 /* Exceptions for "FaceVault" folder in "FaceVault" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				iOS/FaceVaultCamera.swift,
+			);
 			publicHeaders = (
 				FaceVault.h,
 				iOS/FaceVaultMatcherBridge.h,
@@ -83,11 +86,22 @@
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
+/* Begin PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
+		E0390B842F72F85A00715CB0 /* Exceptions for "FaceVault" folder in "Copy Bundle Resources" phase from "FaceVault" target */ = {
+			isa = PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet;
+			buildPhase = E0390A5E2F72E4F900715CB0 /* Resources */;
+			membershipExceptions = (
+				iOS/FaceVaultCamera.swift,
+			);
+		};
+/* End PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		E0390A622F72E4F900715CB0 /* FaceVault */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				E0390AE12F72F1F900715CB0 /* Exceptions for "FaceVault" folder in "FaceVault" target */,
+				E0390B842F72F85A00715CB0 /* Exceptions for "FaceVault" folder in "Copy Bundle Resources" phase from "FaceVault" target */,
 			);
 			path = FaceVault;
 			sourceTree = "<group>";
