@@ -18,7 +18,7 @@ namespace facevault {
 class Matcher {
     
 public:
-    // Compare two 128-dim face embedding vectors
+    // Compare two 512-dim face embedding vectors
     // Returns similarity score between 0.0 and 1.0
     static float cosineSimilarity(const std::vector<float> &a,
                                   const std::vector<float> &b);

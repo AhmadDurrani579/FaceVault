@@ -78,6 +78,7 @@
 			membershipExceptions = (
 				iOS/FaceVaultCamera.swift,
 				iOS/FaceVaultEmbedder.swift,
+				iOS/FaceVaultLiveness.swift,
 				iOS/FaceVaultVision.swift,
 			);
 			publicHeaders = (
@@ -95,6 +96,7 @@
 			membershipExceptions = (
 				iOS/FaceVaultCamera.swift,
 				iOS/FaceVaultEmbedder.swift,
+				iOS/FaceVaultLiveness.swift,
 				iOS/FaceVaultVision.swift,
 			);
 		};
