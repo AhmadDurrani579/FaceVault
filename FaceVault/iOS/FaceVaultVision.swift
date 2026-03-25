@@ -16,6 +16,9 @@ public struct FaceLandmarks {
     public let pitch: Float
     public let roll: Float
     public let pixelBuffer: CVPixelBuffer?
+    public let leftEye:     CGPoint
+    public let rightEye:    CGPoint 
+
 
 }
 
@@ -64,22 +67,37 @@ public class FaceVaultVision {
     
     // MARK: - Extract Landmarks
     private func process(face: VNFaceObservation) {
-        
         guard let allPoints = face.landmarks?.allPoints else { return }
-
-        // Head pose validation — reject if face not forward facing
-        let yaw   = face.yaw?.floatValue ?? 0
-        let pitch = face.pitch?.floatValue ?? 0
-        let roll  = face.roll?.floatValue ?? 0
         
-        // Head pose validation
+        let yaw   = face.yaw?.floatValue   ?? 0
+        let pitch = face.pitch?.floatValue ?? 0
+        let roll  = face.roll?.floatValue  ?? 0
+        
         let maxAngle = Float(0.5)
         guard abs(yaw) < maxAngle && abs(pitch) < maxAngle && abs(roll) < maxAngle else {
-            print("⚠️ FaceVault: Face angle rejected — yaw:\(yaw) pitch:\(pitch) roll:\(roll)")
+            print("⚠️ FaceVault: Face angle rejected")
             return
         }
-
+        
         let points = allPoints.normalizedPoints.map { CGPoint(x: $0.x, y: $0.y) }
+        
+        // Extract eye centers from landmarks
+        var leftEye  = CGPoint(x: 0.35, y: 0.4)  // defaults
+        var rightEye = CGPoint(x: 0.65, y: 0.4)
+        
+        if let leftEyeRegion = face.landmarks?.leftEye {
+            let pts = leftEyeRegion.normalizedPoints
+            let avgX = pts.map { $0.x }.reduce(0, +) / CGFloat(pts.count)
+            let avgY = pts.map { $0.y }.reduce(0, +) / CGFloat(pts.count)
+            leftEye = CGPoint(x: avgX, y: avgY)
+        }
+        
+        if let rightEyeRegion = face.landmarks?.rightEye {
+            let pts = rightEyeRegion.normalizedPoints
+            let avgX = pts.map { $0.x }.reduce(0, +) / CGFloat(pts.count)
+            let avgY = pts.map { $0.y }.reduce(0, +) / CGFloat(pts.count)
+            rightEye = CGPoint(x: avgX, y: avgY)
+        }
         
         let landmarks = FaceLandmarks(
             boundingBox: face.boundingBox,
@@ -87,14 +105,14 @@ public class FaceVaultVision {
             yaw:         yaw,
             pitch:       pitch,
             roll:        roll,
-            pixelBuffer: currentPixelBuffer  
+            pixelBuffer: currentPixelBuffer,
+            leftEye:     leftEye,   // ← add
+            rightEye:    rightEye   // ← add
         )
         
         DispatchQueue.main.async {
             self.delegate?.vision(self, didDetect: landmarks)
         }
-
-        print("✅ Face detected — yaw:\(yaw) pitch:\(pitch) roll:\(roll) points:\(points.count)")
     }
 
 }

@@ -31,11 +31,21 @@ struct FaceRect {
     float pitch;
     float roll;
     int   landmarkCount;
+    
+    // Eye positions (normalized 0-1)
+    float leftEyeX;
+    float leftEyeY;
+    float rightEyeX;
+    float rightEyeY;
+
 };
 
 struct PreprocessResult {
     ImageBuffer croppedFace;
     float       qualityScore;
+    float       distanceScore;
+    bool        tooFar;
+    bool        tooClose;
     bool        success;
     std::string error;
 };
@@ -56,6 +66,10 @@ public:
 
     float qualityScore(const ImageBuffer& face,
                        const FaceRect& faceRect) const;
+    
+    float ipdDistance(const FaceRect& faceRect,
+                      int frameWidth) const;
+
 
 private:
     int   targetSize = 160;
@@ -63,6 +77,9 @@ private:
     float maxYaw     = 0.4f;
     float maxPitch   = 0.4f;
     float maxRoll    = 0.4f;
+    float minIPD = 60.0f;   // too far if IPD < 60px
+    float maxIPD = 600.0f;  // too close if IPD > 600px
+
 };
 
 } // namespace facevault

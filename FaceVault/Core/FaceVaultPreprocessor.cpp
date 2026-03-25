@@ -6,47 +6,75 @@
 //
 
 #include "FaceVaultPreprocessor.hpp"
+#include "FaceVaultSegmentor.hpp"
 #include <cmath>
 #include <algorithm>
 #include <numeric>
 
 namespace facevault {
 PreprocessResult FacePreprocessor::process(const ImageBuffer& frame,
-                                           const FaceRect& faceRect) const {
+                                            const FaceRect& faceRect) const {
     PreprocessResult result;
-    result.success = false;
-    
-    // Step 1 — quality check first
+    result.success   = false;
+    result.tooFar    = false;
+    result.tooClose  = false;
 
+    // Step 1 — quality check
     float quality = qualityScore(frame, faceRect);
     result.qualityScore = quality;
-    
+
     if (quality < minQuality) {
         result.error = "Face quality too low: " + std::to_string(quality);
         return result;
     }
+
+    // Step 2 — distance check via IPD
+    float ipd = ipdDistance(faceRect, frame.width);
     
-    // Step 2 — crop face
+    if (ipd < minIPD) {
+        result.tooFar  = true;
+        result.error   = "Too far away";
+        result.distanceScore = ipd / minIPD;
+        printf("⚠️ FaceVault C++: Too far — IPD: %.1f < %.1f\n", ipd, minIPD);
+        return result;
+    }
+    
+    if (ipd > maxIPD) {
+        result.tooClose = true;
+        result.error    = "Too close";
+        result.distanceScore = maxIPD / ipd;
+        printf("⚠️ FaceVault C++: Too close — IPD: %.1f > %.1f\n", ipd, maxIPD);
+        return result;
+    }
+    
+    result.distanceScore = 1.0f;
+    printf("✅ FaceVault C++: Distance OK — IPD: %.1f\n", ipd);
+
+    // Step 3 — crop
     ImageBuffer cropped = cropFace(frame, faceRect);
     if (cropped.data.empty()) {
         result.error = "Failed to crop face";
         return result;
     }
-    
-    // Step 3 — resize to 160x160
+
+    // Step 4 — resize
     ImageBuffer resized = resize(cropped, targetSize, targetSize);
     if (resized.data.empty()) {
-        result.error = "Failed to resize face";
+        result.error = "Failed to resize";
         return result;
     }
 
-    // Step 4 — normalize
-    ImageBuffer normalized = normalize(resized);
+    // Step 5 — OpenCV segmentation
+    FaceSegmentor segmentor;
+    SegmentResult segResult = segmentor.segment(resized);
+    ImageBuffer toNormalize = segResult.success ? segResult.segmentedFace : resized;
+
+    // Step 6 — normalize
+    ImageBuffer normalized = normalize(toNormalize);
 
     result.croppedFace = normalized;
-    result.success = true;
+    result.success     = true;
     return result;
-    
 }
 
 // MARK: - Crop Face
@@ -202,6 +230,18 @@ float FacePreprocessor::qualityScore(const ImageBuffer& frame,
     if (faceRect.landmarkCount < 50) score -= 0.3f;
 
     return std::max(0.0f, std::min(1.0f, score));
+}
+
+float FacePreprocessor::ipdDistance(const FaceRect& faceRect,
+                                     int frameWidth) const {
+    // Calculate pixel distance between eyes
+    float dx = (faceRect.rightEyeX - faceRect.leftEyeX) * frameWidth;
+    float dy = (faceRect.rightEyeY - faceRect.leftEyeY) * frameWidth;
+    float ipdPixels = std::sqrt(dx * dx + dy * dy);
+    
+    printf("IPD pixels: %.1f frameWidth: %d\n", ipdPixels, frameWidth);
+    
+    return ipdPixels;
 }
 
 } // namespace facevault

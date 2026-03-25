@@ -319,18 +319,34 @@ extension FaceVaultSDK: FaceVaultLivenessDelegate {
                 faceRect.pitch         = landmarks.pitch
                 faceRect.roll          = landmarks.roll
                 faceRect.landmarkCount = Int32(landmarks.landmarks.count)
+                faceRect.leftEyeX      = Float(landmarks.leftEye.x)
+                faceRect.leftEyeY      = Float(landmarks.leftEye.y)
+                faceRect.rightEyeX     = Float(landmarks.rightEye.x)
+                faceRect.rightEyeY     = Float(landmarks.rightEye.y)
                 
-                if  let result = self.preprocessor.process(pixelBuffer, faceRect: faceRect) {
-                    if result.success {
-                        print("✅ FaceVault: Preprocessed — quality: \(result.qualityScore)")
-                        // Generate embedding from preprocessed face
-                        self.currentEmbedding = self.embedder.generateEmbedding(from: pixelBuffer)
-                    } else {
-                        print("⚠️ FaceVault: Preprocess failed — \(result.error ?? "unknown")")
-                    }
+                // ONE call — everything handled inside C++
+                guard let result = self.preprocessor.process(pixelBuffer, faceRect: faceRect) else {
+                    self.currentEmbedding = self.embedder.generateEmbedding(from: pixelBuffer)
+                    return
+                }
+                
+                if result.tooFar {
+                    DispatchQueue.main.async { self.previewView?.showMessage("📏 Move closer") }
+                    return
+                }
+                
+                if result.tooClose {
+                    DispatchQueue.main.async { self.previewView?.showMessage("📏 Move further away") }
+                    return
+                }
+                
+                if result.success, let processedBuffer = result.processedBuffer {
+                    // Use preprocessed buffer directly
+                    self.currentEmbedding = self.embedder.generateEmbedding(from: processedBuffer)
+                } else {
+                    self.currentEmbedding = self.embedder.generateEmbedding(from: pixelBuffer)
                 }
             } else {
-                // Fallback — no landmarks yet
                 self.currentEmbedding = self.embedder.generateEmbedding(from: pixelBuffer)
             }
         }
