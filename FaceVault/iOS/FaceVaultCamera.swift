@@ -8,26 +8,28 @@
 import AVFoundation
 import CoreMedia
 
-public protocol FaceVaultCameraDelegte: AnyObject {
+public protocol FaceVaultCameraDelegate: AnyObject {
     func camera(_ camera: FaceVaultCamera, didOutput sampleBuffer: CMSampleBuffer)
 }
 
-public class FacultVaultCamer: NSObject {
+public class FaceVaultCamera: NSObject {
     
     // MARK: - Properties
-
     private let session = AVCaptureSession()
     private let output = AVCaptureVideoDataOutput()
     private let queue = DispatchQueue(label: "com.facevault.camera", qos: .userInteractive)
     
-    public weak var delegate: FaceVaultCameraDelegte?
-    
+    public weak var delegate: FaceVaultCameraDelegate?
     public private(set) var isRunning = false
+    
+    public var captureSession: AVCaptureSession {
+        return session
+    }
 
-    public overridde init() {
+    // MARK: - Init
+    public override init() {
         super.init()
-        setUpSession()
-        
+//        setupSession()
     }
     
     // MARK: - Setup
@@ -35,7 +37,6 @@ public class FacultVaultCamer: NSObject {
         session.beginConfiguration()
         session.sessionPreset = .hd1280x720
         
-        // Front camera
         guard let device = AVCaptureDevice.default(.builtInWideAngleCamera,
                                                     for: .video,
                                                     position: .front) else {
@@ -44,26 +45,29 @@ public class FacultVaultCamer: NSObject {
             return
         }
         
-        // 60fps
         do {
             try device.lockForConfiguration()
-            device.activeVideoMinFrameDuration = CMTime(value: 1, timescale: 60)
-            device.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: 60)
+            
+            // Find highest supported frame rate
+            let supportedRanges = device.activeFormat.videoSupportedFrameRateRanges
+            let maxFrameRate = supportedRanges.map { $0.maxFrameRate }.max() ?? 30
+            let targetFrameRate = min(60, maxFrameRate)
+            
+            let duration = CMTime(value: 1, timescale: CMTimeScale(targetFrameRate))
+            device.activeVideoMinFrameDuration = duration
+            device.activeVideoMaxFrameDuration = duration
             device.unlockForConfiguration()
         } catch {
-            print("FaceVault: Could not set frame rate — \(error)")
+            print("❌ FaceVault: Could not set frame rate — \(error)")
         }
         
-        // Add input
         guard let input = try? AVCaptureDeviceInput(device: device),
               session.canAddInput(input) else {
-            print("FaceVault: Could not add camera input")
             session.commitConfiguration()
             return
         }
         session.addInput(input)
         
-        // Add output
         output.videoSettings = [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
         ]
@@ -71,13 +75,11 @@ public class FacultVaultCamer: NSObject {
         output.setSampleBufferDelegate(self, queue: queue)
         
         guard session.canAddOutput(output) else {
-            print("FaceVault: Could not add video output")
             session.commitConfiguration()
             return
         }
         session.addOutput(output)
         
-        // Portrait orientation
         if let connection = output.connection(with: .video) {
             if connection.isVideoRotationAngleSupported(90) {
                 connection.videoRotationAngle = 90
@@ -85,29 +87,41 @@ public class FacultVaultCamer: NSObject {
         }
         
         session.commitConfiguration()
-        print("FaceVault: Camera session configured")
+        print("✅ FaceVault: Camera session configured")
     }
-
     
+    // MARK: - Control
     public func start() {
+        Thread.callStackSymbols.forEach { print($0) }
+
+        #if targetEnvironment(simulator)
+        print("⚠️ FaceVault: Camera not available on simulator")
+        return
+        #endif
+        
+        setupSession() // ← move here, only setup when actually needed
+        
         guard !session.isRunning else { return }
-        DispatchQueue.global(qos: .userInteractive).async { [weak self] in
-            self?.session.startRunning()
-            self?.isRunning = true
-            print("FaceVault: Camera started")
+        DispatchQueue.global(qos: .userInteractive).async {
+            self.session.startRunning()
+            self.isRunning = true
+            print("✅ FaceVault: Camera started")
         }
     }
+
     
     public func stop() {
         guard session.isRunning else { return }
-        DispatchQueue.global(qos: .userInteractive).async {[weak self] in
-            self?.session.stopRunning()
-            self?.isRunning = false
-            print("FaceVault: Camera stopped")
+        DispatchQueue.global(qos: .userInteractive).async {
+            self.session.stopRunning()
+            self.isRunning = false
+            print("✅ FaceVault: Camera stopped")
         }
     }
+    
 }
 
+// MARK: - Sample Buffer Delegate
 extension FaceVaultCamera: AVCaptureVideoDataOutputSampleBufferDelegate {
     
     public func captureOutput(_ output: AVCaptureOutput,
@@ -122,4 +136,3 @@ extension FaceVaultCamera: AVCaptureVideoDataOutputSampleBufferDelegate {
         print("FaceVault: Frame dropped")
     }
 }
-

@@ -10,6 +10,7 @@
 
 #import <Foundation/Foundation.h>
 #import <FaceVault/FaceVaultMatcherBridge.h>
-
+#import <FaceVault/FaceVaultDecisionBridge.h>
+#import <FaceVault/FaceVaultPreprocessorBridge.h>
 
 #endif /* FaceVault_h */
