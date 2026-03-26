@@ -13,7 +13,8 @@ public class FaceVaultPreviewView: UIView {
     private let sceneView = ARSCNView()
     private let instructionLabel = UILabel()
     private let faceOvalLayer = CAShapeLayer()
-    
+    private var cameraPreviewLayer: AVCaptureVideoPreviewLayer?
+
     public override init(frame: CGRect) {
         super.init(frame: frame)
         setupUI()
@@ -75,9 +76,16 @@ public class FaceVaultPreviewView: UIView {
     // MARK: - Public
     public func attachARSession(_ session: ARSession) {
         DispatchQueue.main.async {
+            // Hide camera layer
+            self.cameraPreviewLayer?.removeFromSuperlayer()
+            self.cameraPreviewLayer = nil
+            
+            // Show ARKit view
+            self.sceneView.isHidden = false
             self.sceneView.session = session
         }
     }
+
     
     public func showChallenge(_ challenge: LivenessChallenge) {
         DispatchQueue.main.async {
@@ -103,6 +111,34 @@ public class FaceVaultPreviewView: UIView {
             self.instructionLabel.text = "  ⚠️ Please face the camera directly  "
         }
     }
+    
+    public func attachCameraSession(_ session: AVCaptureSession) {
+        DispatchQueue.main.async {
+            // Remove ARKit view
+            self.sceneView.isHidden = true
+            
+            // Add camera preview layer
+            let layer = AVCaptureVideoPreviewLayer(session: session)
+            layer.videoGravity = .resizeAspectFill
+            layer.frame = self.bounds
+            self.layer.insertSublayer(layer, at: 0)
+            self.cameraPreviewLayer = layer
+        }
+    }
+    
+    public func reset() {
+        // Remove camera layer
+        cameraPreviewLayer?.removeFromSuperlayer()
+        cameraPreviewLayer = nil
+        
+        // Hide ARKit view
+        sceneView.isHidden = true
+        
+        // Clear message
+        instructionLabel.text = ""
+    }
+
+
 }
 
 // MARK: - Challenge Instructions

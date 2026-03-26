@@ -17,9 +17,7 @@ public struct FaceLandmarks {
     public let roll: Float
     public let pixelBuffer: CVPixelBuffer?
     public let leftEye:     CGPoint
-    public let rightEye:    CGPoint 
-
-
+    public let rightEye:    CGPoint
 }
 
 public protocol FaceVaultVisionDelegate: AnyObject {
@@ -113,6 +111,42 @@ public class FaceVaultVision {
         DispatchQueue.main.async {
             self.delegate?.vision(self, didDetect: landmarks)
         }
+    }
+    
+    public func process(sampleBuffer: CMSampleBuffer) {
+        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        
+        let request = VNDetectFaceLandmarksRequest { [weak self] request, error in
+            guard let self else { return }
+            
+            if let error {
+                print("❌ FaceVault Vision error: \(error)")
+                return
+            }
+            
+            guard let results = request.results as? [VNFaceObservation] else { return }
+            
+            switch results.count {
+            case 0:
+                if self.lastFaceDetected {
+                    self.lastFaceDetected = false
+                    DispatchQueue.main.async { self.delegate?.visionDidLoseFace(self) }
+                }
+            case 1:
+                self.lastFaceDetected = true
+                self.process(face: results[0])
+            default:
+                self.lastFaceDetected = false
+                DispatchQueue.main.async {
+                    self.delegate?.visionDidDetectMultipleFaces(self, count: results.count)
+                }
+            }
+        }
+        
+        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer,
+                                             orientation: .up,
+                                             options: [:])
+        try? handler.perform([request])
     }
 
 }

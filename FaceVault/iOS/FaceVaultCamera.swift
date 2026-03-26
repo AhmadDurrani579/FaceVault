@@ -92,7 +92,6 @@ public class FaceVaultCamera: NSObject {
     
     // MARK: - Control
     public func start() {
-        Thread.callStackSymbols.forEach { print($0) }
 
         #if targetEnvironment(simulator)
         print("⚠️ FaceVault: Camera not available on simulator")

@@ -122,6 +122,27 @@ public class FaceVaultLiveness: NSObject {
         print("FaceVault: Challenge started — \(next)")
     }
     
+    public func startEnrollMode() {
+        #if targetEnvironment(simulator)
+        return
+        #endif
+        
+        guard ARFaceTrackingConfiguration.isSupported else { return }
+        
+        session = ARSession()
+        session?.delegate = self
+        session?.delegateQueue = DispatchQueue(label: "com.facevault.arkit",
+                                               qos: .userInteractive)
+        
+        let config = ARFaceTrackingConfiguration()
+        config.isLightEstimationEnabled = false
+        session?.run(config)
+        
+        isRunning = true
+        // No challenges — just start session
+        print("✅ FaceVault: Enroll ARKit session started")
+    }
+    
     // MARK: - Evaluate Blend Shapes
     private func evaluate(blendShapes: [ARFaceAnchor.BlendShapeLocation: NSNumber], headYaw: Float = 0) {
         guard let challenge = currentChallenge,

@@ -49,7 +49,14 @@ class ViewController: UIViewController {
                 DispatchQueue.main.async {
                     switch result {
                     case .authenticated(let confidence):
-                        self.previewView.showMessage("✅ Authenticated! (\(Int(confidence * 100))%)")
+                        self.previewView.showMessage("✅ Authenticated! \(Int(confidence * 100))%")
+                        
+                        // After 2 seconds — go to main app
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                            self.previewView.isHidden = true
+                            // Navigate to your main screen here
+                            print("✅ User authenticated — open main app")
+                        }
                     case .deniedNoMatch:
                         self.previewView.showMessage("❌ Face does not match")
                     case .deniedLiveness:
