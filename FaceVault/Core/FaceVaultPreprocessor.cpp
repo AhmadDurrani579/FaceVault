@@ -7,67 +7,80 @@
 
 #include "FaceVaultPreprocessor.hpp"
 #include "FaceVaultSegmentor.hpp"
+#include "FaceVaultAligner.hpp"
 #include <cmath>
 #include <algorithm>
 #include <numeric>
+#include <opencv2/opencv.hpp>
 
 namespace facevault {
+
+
+// MARK: - Crop Face
 PreprocessResult FacePreprocessor::process(const ImageBuffer& frame,
                                             const FaceRect& faceRect) const {
     PreprocessResult result;
-    result.success   = false;
-    result.tooFar    = false;
-    result.tooClose  = false;
+    result.success  = false;
+    result.tooFar   = false;
+    result.tooClose = false;
 
     // Step 1 — quality check
     float quality = qualityScore(frame, faceRect);
     result.qualityScore = quality;
-
     if (quality < minQuality) {
-        result.error = "Face quality too low: " + std::to_string(quality);
+        result.error = "Face quality too low";
         return result;
     }
 
-    // Step 2 — distance check via IPD
+    // Step 2 — distance check
     float ipd = ipdDistance(faceRect, frame.width);
-    
     if (ipd < minIPD) {
-        result.tooFar  = true;
-        result.error   = "Too far away";
-        result.distanceScore = ipd / minIPD;
-        printf("⚠️ FaceVault C++: Too far — IPD: %.1f < %.1f\n", ipd, minIPD);
+        result.tooFar = true;
+        result.error  = "Too far away";
         return result;
     }
-    
     if (ipd > maxIPD) {
         result.tooClose = true;
         result.error    = "Too close";
-        result.distanceScore = maxIPD / ipd;
-        printf("⚠️ FaceVault C++: Too close — IPD: %.1f > %.1f\n", ipd, maxIPD);
         return result;
     }
-    
-    result.distanceScore = 1.0f;
-    printf("✅ FaceVault C++: Distance OK — IPD: %.1f\n", ipd);
 
-    // Step 3 — crop
+    // Step 3 — crop face
     ImageBuffer cropped = cropFace(frame, faceRect);
     if (cropped.data.empty()) {
-        result.error = "Failed to crop face";
+        result.error = "Failed to crop";
         return result;
     }
 
-    // Step 4 — resize
-    ImageBuffer resized = resize(cropped, targetSize, targetSize);
-    if (resized.data.empty()) {
-        result.error = "Failed to resize";
-        return result;
-    }
+    // Step 4 — face alignment ← NEW
+    FaceAligner aligner;
+    AlignResult alignResult = aligner.align(
+        cropped,
+        faceRect.leftEyeX,  faceRect.leftEyeY,
+        faceRect.rightEyeX, faceRect.rightEyeY
+    );
 
-    // Step 5 — OpenCV segmentation
+    ImageBuffer toSegment = alignResult.success ?
+                            alignResult.alignedFace :
+                            resize(cropped, targetSize, targetSize);
+
+    if (alignResult.success) {
+        printf("✅ FaceVault C++: Aligned — angle:%.2f\n", alignResult.rollAngle);
+    } else {
+        printf("⚠️ FaceVault C++: Alignment failed — %s\n", alignResult.error.c_str());
+        // Fallback — resize without alignment
+        toSegment = resize(cropped, targetSize, targetSize);
+    }
+    
+    // Step 4.5 — Retinex illumination normalization
+    ImageBuffer illuminated = retinexNormalize(toSegment);
+    ImageBuffer toSegmentFinal = illuminated.data.empty() ? toSegment : illuminated;
+
+    // Step 5 — segmentation
     FaceSegmentor segmentor;
-    SegmentResult segResult = segmentor.segment(resized);
-    ImageBuffer toNormalize = segResult.success ? segResult.segmentedFace : resized;
+    SegmentResult segResult = segmentor.segment(toSegmentFinal);
+    ImageBuffer toNormalize = segResult.success ?
+                              segResult.segmentedFace : toSegmentFinal;
 
     // Step 6 — normalize
     ImageBuffer normalized = normalize(toNormalize);
@@ -77,57 +90,6 @@ PreprocessResult FacePreprocessor::process(const ImageBuffer& frame,
     return result;
 }
 
-// MARK: - Crop Face
-ImageBuffer FacePreprocessor::cropFace(const ImageBuffer& frame,
-                                        const FaceRect& faceRect) const {
-    // Add 20% padding around face
-    float padding = 0.20f;
-    float px = faceRect.x - (faceRect.width  * padding);
-    float py = faceRect.y - (faceRect.height * padding);
-    float pw = faceRect.width  * (1.0f + 2.0f * padding);
-    float ph = faceRect.height * (1.0f + 2.0f * padding);
-
-    // Clamp to frame bounds
-    px = std::max(0.0f, px);
-    py = std::max(0.0f, py);
-    pw = std::min(1.0f - px, pw);
-    ph = std::min(1.0f - py, ph);
-
-    // Convert normalized to pixel coords
-    int x0 = static_cast<int>(px * frame.width);
-    int y0 = static_cast<int>(py * frame.height);
-    int w  = static_cast<int>(pw * frame.width);
-    int h  = static_cast<int>(ph * frame.height);
-
-    // Clamp
-    x0 = std::max(0, std::min(x0, frame.width  - 1));
-    y0 = std::max(0, std::min(y0, frame.height - 1));
-    w  = std::min(w, frame.width  - x0);
-    h  = std::min(h, frame.height - y0);
-
-    if (w <= 0 || h <= 0) return {};
-
-    // Crop
-    ImageBuffer cropped;
-    cropped.width    = w;
-    cropped.height   = h;
-    cropped.channels = frame.channels;
-    cropped.data.resize(w * h * frame.channels);
-
-    for (int row = 0; row < h; row++) {
-        int srcRow = y0 + row;
-        for (int col = 0; col < w; col++) {
-            int srcCol = x0 + col;
-            int srcIdx = (srcRow * frame.width + srcCol) * frame.channels;
-            int dstIdx = (row * w + col) * frame.channels;
-            for (int c = 0; c < frame.channels; c++) {
-                cropped.data[dstIdx + c] = frame.data[srcIdx + c];
-            }
-        }
-    }
-
-    return cropped;
-}
 
 // MARK: - Resize (bilinear interpolation)
 ImageBuffer FacePreprocessor::resize(const ImageBuffer& input,
@@ -212,6 +174,56 @@ ImageBuffer FacePreprocessor::normalize(const ImageBuffer& input) const {
     return output;
 }
 
+
+ImageBuffer FacePreprocessor::cropFace(const ImageBuffer& frame,
+                                        const FaceRect& faceRect) const {
+    // Add 20% padding
+    float padding = 0.20f;
+    float px = faceRect.x - (faceRect.width  * padding);
+    float py = faceRect.y - (faceRect.height * padding);
+    float pw = faceRect.width  * (1.0f + 2.0f * padding);
+    float ph = faceRect.height * (1.0f + 2.0f * padding);
+
+    // Clamp to frame bounds
+    px = std::max(0.0f, px);
+    py = std::max(0.0f, py);
+    pw = std::min(1.0f - px, pw);
+    ph = std::min(1.0f - py, ph);
+
+    // Convert to pixel coords
+    int x0 = static_cast<int>(px * frame.width);
+    int y0 = static_cast<int>(py * frame.height);
+    int w  = static_cast<int>(pw * frame.width);
+    int h  = static_cast<int>(ph * frame.height);
+
+    // Clamp
+    x0 = std::max(0, std::min(x0, frame.width  - 1));
+    y0 = std::max(0, std::min(y0, frame.height - 1));
+    w  = std::min(w, frame.width  - x0);
+    h  = std::min(h, frame.height - y0);
+
+    if (w <= 0 || h <= 0) return {};
+
+    // Crop pixels
+    ImageBuffer cropped;
+    cropped.width    = w;
+    cropped.height   = h;
+    cropped.channels = frame.channels;
+    cropped.data.resize(w * h * frame.channels);
+
+    for (int row = 0; row < h; row++) {
+        for (int col = 0; col < w; col++) {
+            int srcIdx = ((y0 + row) * frame.width + (x0 + col)) * frame.channels;
+            int dstIdx = (row * w + col) * frame.channels;
+            for (int c = 0; c < frame.channels; c++) {
+                cropped.data[dstIdx + c] = frame.data[srcIdx + c];
+            }
+        }
+    }
+
+    return cropped;
+}
+
 // MARK: - Quality Score
 float FacePreprocessor::qualityScore(const ImageBuffer& frame,
                                       const FaceRect& faceRect) const {
@@ -242,6 +254,66 @@ float FacePreprocessor::ipdDistance(const FaceRect& faceRect,
     printf("IPD pixels: %.1f frameWidth: %d\n", ipdPixels, frameWidth);
     
     return ipdPixels;
+}
+
+// MARK: - Retinex Illumination Normalization
+ImageBuffer FacePreprocessor::retinexNormalize(const ImageBuffer& input) const {
+    if (input.data.empty()) return input;
+
+    cv::Mat img;
+    if (input.channels == 4) {
+        cv::Mat bgra(input.height, input.width, CV_8UC4,
+                     const_cast<uint8_t*>(input.data.data()));
+        cv::cvtColor(bgra, img, cv::COLOR_BGRA2BGR);
+    } else {
+        img = cv::Mat(input.height, input.width, CV_8UC3,
+                      const_cast<uint8_t*>(input.data.data())).clone();
+    }
+
+    // Convert to float
+    cv::Mat imgFloat;
+    img.convertTo(imgFloat, CV_32F);
+    imgFloat += 1.0f; // avoid log(0)
+
+    // Single Scale Retinex per channel
+    cv::Mat result = cv::Mat::zeros(imgFloat.size(), imgFloat.type());
+    std::vector<cv::Mat> channels(3);
+    cv::split(imgFloat, channels);
+
+    float sigma = 30.0f; // scale — smaller = more detail
+
+    for (int c = 0; c < 3; c++) {
+        cv::Mat blurred;
+        cv::GaussianBlur(channels[c], blurred,
+                         cv::Size(0, 0), sigma);
+        blurred += 1.0f;
+
+        cv::Mat retinex;
+        cv::log(channels[c], retinex);
+        cv::Mat logBlur;
+        cv::log(blurred, logBlur);
+        retinex -= logBlur;
+
+        // Normalize to 0-255
+        double minVal, maxVal;
+        cv::minMaxLoc(retinex, &minVal, &maxVal);
+        retinex = (retinex - minVal) / (maxVal - minVal + 1e-6f) * 255.0f;
+        retinex.convertTo(channels[c], CV_8U);
+    }
+
+    cv::Mat output;
+    cv::merge(channels, output);
+
+    printf("✅ FaceVault C++: Retinex normalization applied\n");
+
+    // Convert back to ImageBuffer
+    ImageBuffer result2;
+    result2.width    = output.cols;
+    result2.height   = output.rows;
+    result2.channels = 3;
+    result2.data.assign(output.data,
+                        output.data + output.total() * output.channels());
+    return result2;
 }
 
 } // namespace facevault

@@ -27,4 +27,39 @@ namespace facevault {
                           float threshold) {
         return cosineSimilarity(a, b) >= threshold;
     }
+
+std::vector<float> Matcher::averageEmbeddings(
+    const std::vector<std::vector<float>>& embeddings) {
+
+    if (embeddings.empty()) return {};
+
+    size_t dims = embeddings[0].size();
+    std::vector<float> avg(dims, 0.0f);
+
+    for (const auto& emb : embeddings) {
+        for (size_t i = 0; i < dims; i++) {
+            avg[i] += emb[i];
+        }
+    }
+
+    float count = static_cast<float>(embeddings.size());
+    for (auto& v : avg) v /= count;
+
+    printf("✅ FaceVault: Averaged %zu embeddings\n", embeddings.size());
+    return avg;
+}
+
+float Matcher::matchWithAveraging(
+                                const std::vector<std::vector<float>>& liveEmbeddings,
+                                const std::vector<float>& storedEmbedding) {
+
+    if (liveEmbeddings.empty()) return 0.0f;
+
+    // Average live embeddings
+    auto averaged = averageEmbeddings(liveEmbeddings);
+
+    // Compare with stored
+    return cosineSimilarity(averaged, storedEmbedding);
+}
+
 }

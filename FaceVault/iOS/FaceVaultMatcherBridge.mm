@@ -25,4 +25,32 @@
     return facevault::Matcher::isMatch(vecA, vecB);
 }
 
+- (float)matchWithAveraging:(NSArray<NSArray<NSNumber *> *> *)liveEmbeddings stored:(NSArray<NSNumber *> *)stored {
+    
+    std::vector<float> storedVec;
+    for(NSNumber *n in stored) storedVec.push_back(n.floatValue);
+    
+    // Convert live embeddings
+    std::vector<std::vector<float>> liveVecs;
+    for (NSArray<NSNumber *> *emb in liveEmbeddings) {
+        std::vector<float> vec;
+        for (NSNumber *n in emb) vec.push_back(n.floatValue);
+        liveVecs.push_back(vec);
+    }
+    return facevault::Matcher::matchWithAveraging(liveVecs, storedVec);
+}
+
+- (NSArray<NSNumber *> *)averageEmbeddings:(NSArray<NSArray<NSNumber *> *> *)embeddings {
+    std::vector<std::vector<float>> vecs;
+    for (NSArray<NSNumber *> *emb in embeddings) {
+        std::vector<float> vec;
+        for (NSNumber *n in emb) vec.push_back(n.floatValue);
+        vecs.push_back(vec);
+    }
+    auto avg = facevault::Matcher::averageEmbeddings(vecs);
+    NSMutableArray *result = [NSMutableArray array];
+    for (float v : avg) [result addObject:@(v)];
+    return result;
+}
+
 @end

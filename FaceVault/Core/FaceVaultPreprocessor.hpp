@@ -69,10 +69,14 @@ public:
     
     float ipdDistance(const FaceRect& faceRect,
                       int frameWidth) const;
+    
+    // Step — illumination normalization (Retinex)
+    ImageBuffer retinexNormalize(const ImageBuffer& input) const;
+
 
 
 private:
-    int   targetSize = 160;
+    int   targetSize = 112;
     float minQuality = 0.5f;
     float maxYaw     = 0.4f;
     float maxPitch   = 0.4f;

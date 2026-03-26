@@ -67,12 +67,12 @@ class ViewController: UIViewController {
                         self.previewView.showMessage("❌ No enrolled face found")
                     case .requiresRetry:
                         self.previewView.showMessage("🔄 Please try again")
+                    case .deniedTampered:
+                        self.previewView.showMessage("❌ Security violation detected")
                     }
                 }
             }
         }
     }
-
-
 }
 

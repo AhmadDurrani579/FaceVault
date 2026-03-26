@@ -18,6 +18,13 @@
               b:(NSArray<NSNumber *> *)b
       threshold:(float)threshold;
 
+// Average multiple embeddings and compare ← NEW
+- (float)matchWithAveraging:(NSArray<NSArray<NSNumber *> *> *)liveEmbeddings
+                     stored:(NSArray<NSNumber *> *)stored;
+
+// Average embeddings ← NEW
+- (NSArray<NSNumber *> *)averageEmbeddings:(NSArray<NSArray<NSNumber *> *> *)embeddings;
+
 
 @end
 

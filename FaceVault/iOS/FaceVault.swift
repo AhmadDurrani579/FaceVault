@@ -17,6 +17,7 @@ public enum FaceVaultResult {
     case deniedLiveness
     case deniedMultipleFaces
     case deniedInsufficientData
+    case deniedTampered
     case requiresRetry
 }
 
@@ -30,7 +31,8 @@ public class FaceVaultSDK: NSObject {
     private let liveness  = FaceVaultLiveness()
     private let bridge    = FaceVaultMatcherBridge()
     private let storage   = FaceVaultStorage()
-    
+    private let segmentorML = FaceVaultSegmentorML()
+
     // MARK: - State
     private var onResult: ((FaceVaultResult) -> Void)?
     private var enrollCompletion: ((Bool) -> Void)?
@@ -48,6 +50,9 @@ public class FaceVaultSDK: NSObject {
     private var lastLandmarks: FaceLandmarks?
     private var enrollEmbeddings: [[Float]] = []
     private let maxEnrollFrames = 10
+    private var liveEmbeddings: [[Float]] = []
+    private let maxLiveFrames = 5
+    private var lastSegmentTime: Date = .distantPast
 
 
     // MARK: - Init
@@ -62,10 +67,11 @@ public class FaceVaultSDK: NSObject {
         DispatchQueue.global(qos: .background).async { [weak self] in
             guard let self else { return }
             var pixelBuffer: CVPixelBuffer?
-            CVPixelBufferCreate(nil, 160, 160, kCVPixelFormatType_32BGRA, nil, &pixelBuffer)
+            CVPixelBufferCreate(nil, 112, 112, kCVPixelFormatType_32BGRA, nil, &pixelBuffer)
             if let buffer = pixelBuffer {
                 _ = self.embedder.generateEmbedding(from: buffer)
-                print("✅ FaceVault: Model warmed up")
+                _ = self.segmentorML.generateMask(from: buffer) // ← warm up BiSeNet too
+                print("✅ FaceVault: Models warmed up")
             }
         }
     }
@@ -177,26 +183,21 @@ public class FaceVaultSDK: NSObject {
         challengePassed = false
         livenessScore = 0
         currentEmbedding = nil
-        
-        // Show message BEFORE Face ID appears
-        previewView?.showMessage("🔐 Authenticating with Face ID...")
+        liveEmbeddings = []  // ← reset here ✅
         
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             
             guard let stored = self.storage.loadEmbedding() else {
-                DispatchQueue.main.async {
-                    self.previewView?.showMessage("❌ No enrolled face found")
-                    completion(.deniedInsufficientData)
-                }
+                print("❌ FaceVault: No enrolled face found")
+                DispatchQueue.main.async { completion(.deniedInsufficientData) }
                 return
             }
             
             self.storedEmbedding = stored
             
             DispatchQueue.main.async {
-                self.previewView?.showMessage("✅ Identity verified — scanning face...")
-                
+                self.previewView?.showMessage("Verifying Liveness...")
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                     self.liveness.start()
                     self.attachLivenessPreview()
@@ -241,8 +242,7 @@ public class FaceVaultSDK: NSObject {
     
     // MARK: - Decision
     private func makeDecision() {
-        guard let current = currentEmbedding,
-              let stored  = storedEmbedding else {
+        guard let stored = storedEmbedding else {
             DispatchQueue.main.async { [weak self] in
                 self?.onResult?(.requiresRetry)
                 self?.stop()
@@ -250,12 +250,31 @@ public class FaceVaultSDK: NSObject {
             return
         }
         
-        let nsA = current.map { NSNumber(value: $0) }
-        let nsB = stored.map  { NSNumber(value: $0) }
-        let embeddingScore = bridge.cosineSimilarity(nsA, b: nsB)
+        let nsB = stored.map { NSNumber(value: $0) }
+        
+        // Use multi-frame averaging if we have enough frames
+        let embeddingScore: Float
+        
+        if liveEmbeddings.count >= 2 {
+            // Average multiple frames
+            let nsLive = liveEmbeddings.map { $0.map { NSNumber(value: $0) } }
+            embeddingScore = bridge.match(withAveraging: nsLive, stored: nsB)
+            print("📊 Using \(liveEmbeddings.count) frame average")
+        } else if let current = currentEmbedding {
+            // Fallback — single frame
+            let nsA = current.map { NSNumber(value: $0) }
+            embeddingScore = bridge.cosineSimilarity(nsA, b: nsB)
+            print("📊 Using single frame")
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                self?.onResult?(.requiresRetry)
+                self?.stop()
+            }
+            return
+        }
         
         print("📊 embeddingScore=\(embeddingScore) livenessScore=\(livenessScore) challengePassed=\(challengePassed) singleFace=\(singleFaceDetected) landmarks=\(landmarkCount)")
-
+        
         let input = FaceVaultDecisionInput()
         input.embeddingScore     = embeddingScore
         input.livenessScore      = livenessScore
@@ -266,7 +285,7 @@ public class FaceVaultSDK: NSObject {
         let engine = FaceVaultDecisionBridge()
         let resultCode = engine.evaluate(input)
         print("🔍 resultCode = \(resultCode)")
-
+        
         let faceVaultResult: FaceVaultResult
         switch resultCode {
         case 0: faceVaultResult = .authenticated(confidence: embeddingScore)
@@ -274,6 +293,7 @@ public class FaceVaultSDK: NSObject {
         case 2: faceVaultResult = .deniedNoMatch
         case 3: faceVaultResult = .deniedMultipleFaces
         case 4: faceVaultResult = .deniedInsufficientData
+        case 5: faceVaultResult = .deniedTampered
         default: faceVaultResult = .requiresRetry
         }
         
@@ -369,6 +389,9 @@ extension FaceVaultSDK: FaceVaultLivenessDelegate {
         guard now.timeIntervalSince(lastEmbeddingTime) > 0.5 else { return }
         lastEmbeddingTime = now
         
+        let runBiSeNet = now.timeIntervalSince(lastSegmentTime) > 2.0
+        if runBiSeNet { lastSegmentTime = now }
+
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             
@@ -409,17 +432,30 @@ extension FaceVaultSDK: FaceVaultLivenessDelegate {
                 bufferToUse = pixelBuffer
             }
             
-            guard let embedding = self.embedder.generateEmbedding(from: bufferToUse) else { return }
+            // BiSeNet — only every 2 seconds
+            let finalBuffer: CVPixelBuffer
+            if runBiSeNet, let _ = self.segmentorML.generateMask(from: bufferToUse) {
+                print("✅ FaceVault: BiSeNet mask applied")
+                finalBuffer = bufferToUse
+            } else {
+                finalBuffer = bufferToUse
+            }
+            
+            guard let embedding = self.embedder.generateEmbedding(from: finalBuffer) else { return }
+            guard let embedding = self.embedder.generateEmbedding(from: finalBuffer) else { return }
             
             if self.isEnrolling {
-                // Store for averaging
+                // Stop collecting after max frames
+                guard self.enrollEmbeddings.count < self.maxEnrollFrames else { return }
                 self.enrollEmbeddings.append(embedding)
                 print("✅ FaceVault: Enroll frame \(self.enrollEmbeddings.count)/\(self.maxEnrollFrames)")
                 DispatchQueue.main.async {
                     self.previewView?.showMessage("Scanning... \(self.enrollEmbeddings.count)/\(self.maxEnrollFrames)")
                 }
             } else {
-                // Auth mode
+                guard self.liveEmbeddings.count < self.maxLiveFrames else { return }
+                self.liveEmbeddings.append(embedding)
+                print("✅ FaceVault: Live frame \(self.liveEmbeddings.count)/\(self.maxLiveFrames)")
                 self.currentEmbedding = embedding
             }
         }

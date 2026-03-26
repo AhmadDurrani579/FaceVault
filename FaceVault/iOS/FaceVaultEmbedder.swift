@@ -51,14 +51,14 @@ public class FaceVaultEmbedder {
     public func generateEmbedding(from pixelBuffer: CVPixelBuffer) -> [Float]? {
         guard let model else { return nil }
         
-        guard let resized = resize(pixelBuffer: pixelBuffer, to: CGSize(width: 160, height: 160)) else {
+        guard let resized = resize(pixelBuffer: pixelBuffer, to: CGSize(width: 112, height: 112)) else {
             print("❌ FaceVault: Could not resize")
             return nil
         }
         
         do {
             // Convert pixel buffer → MLMultiArray (1, 3, 160, 160)
-            let array = try MLMultiArray(shape: [1, 3, 160, 160], dataType: .float32)
+            let array = try MLMultiArray(shape: [1, 3, 112, 112], dataType: .float32)
             
             CVPixelBufferLockBaseAddress(resized, .readOnly)
             defer { CVPixelBufferUnlockBaseAddress(resized, .readOnly) }

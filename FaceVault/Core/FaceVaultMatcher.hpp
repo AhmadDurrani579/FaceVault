@@ -27,8 +27,16 @@ public:
     static bool isMatch(const std::vector<float> &a,
                         const std::vector<float> &b,
                         float threshold = 0.75f);
-  
     
+    // Average multiple embeddings into one
+    static std::vector<float> averageEmbeddings(
+        const std::vector<std::vector<float>>& embeddings);
+
+    // Compare averaged embedding against stored
+    static float matchWithAveraging(
+        const std::vector<std::vector<float>>& liveEmbeddings,
+        const std::vector<float>& storedEmbedding);
+
 };
 }// namespace facevault
 #endif /* FaceVaultMatcher_hpp */
