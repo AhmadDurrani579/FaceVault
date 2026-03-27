@@ -12,6 +12,22 @@ Every embedding, every comparison, every decision happens entirely on the device
 
 ---
 
+## Screenshots
+
+### Enrollment — Face ID style scanning
+![Enrollment](assets/enrollment.svg)
+
+### Authentication pipeline
+![Pipeline](assets/pipeline.svg)
+
+### FaceVault vs server-based
+![Comparison](assets/comparison.svg)
+
+### FaceVault vs server-based
+![Comparison](assets/liveness.svg)
+
+
+---
 ## Accuracy
 
 | Benchmark | Score |
