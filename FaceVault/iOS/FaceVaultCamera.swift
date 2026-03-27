@@ -40,7 +40,6 @@ public class FaceVaultCamera: NSObject {
         guard let device = AVCaptureDevice.default(.builtInWideAngleCamera,
                                                     for: .video,
                                                     position: .front) else {
-            print("FaceVault: Front camera not available")
             session.commitConfiguration()
             return
         }
@@ -87,7 +86,6 @@ public class FaceVaultCamera: NSObject {
         }
         
         session.commitConfiguration()
-        print("✅ FaceVault: Camera session configured")
     }
     
     // MARK: - Control
@@ -104,7 +102,6 @@ public class FaceVaultCamera: NSObject {
         DispatchQueue.global(qos: .userInteractive).async {
             self.session.startRunning()
             self.isRunning = true
-            print("✅ FaceVault: Camera started")
         }
     }
 
@@ -114,7 +111,6 @@ public class FaceVaultCamera: NSObject {
         DispatchQueue.global(qos: .userInteractive).async {
             self.session.stopRunning()
             self.isRunning = false
-            print("✅ FaceVault: Camera stopped")
         }
     }
     
@@ -132,6 +128,5 @@ extension FaceVaultCamera: AVCaptureVideoDataOutputSampleBufferDelegate {
     public func captureOutput(_ output: AVCaptureOutput,
                                didDrop sampleBuffer: CMSampleBuffer,
                                from connection: AVCaptureConnection) {
-        print("FaceVault: Frame dropped")
     }
 }

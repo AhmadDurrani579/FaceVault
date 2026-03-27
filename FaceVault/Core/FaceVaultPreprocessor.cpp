@@ -64,14 +64,10 @@ PreprocessResult FacePreprocessor::process(const ImageBuffer& frame,
                             alignResult.alignedFace :
                             resize(cropped, targetSize, targetSize);
 
-    if (alignResult.success) {
-        printf("✅ FaceVault C++: Aligned — angle:%.2f\n", alignResult.rollAngle);
-    } else {
-        printf("⚠️ FaceVault C++: Alignment failed — %s\n", alignResult.error.c_str());
-        // Fallback — resize without alignment
+    if (!alignResult.success) {
         toSegment = resize(cropped, targetSize, targetSize);
     }
-    
+
     // Step 4.5 — Retinex illumination normalization
     ImageBuffer illuminated = retinexNormalize(toSegment);
     ImageBuffer toSegmentFinal = illuminated.data.empty() ? toSegment : illuminated;
@@ -251,7 +247,6 @@ float FacePreprocessor::ipdDistance(const FaceRect& faceRect,
     float dy = (faceRect.rightEyeY - faceRect.leftEyeY) * frameWidth;
     float ipdPixels = std::sqrt(dx * dx + dy * dy);
     
-    printf("IPD pixels: %.1f frameWidth: %d\n", ipdPixels, frameWidth);
     
     return ipdPixels;
 }
@@ -303,8 +298,6 @@ ImageBuffer FacePreprocessor::retinexNormalize(const ImageBuffer& input) const {
 
     cv::Mat output;
     cv::merge(channels, output);
-
-    printf("✅ FaceVault C++: Retinex normalization applied\n");
 
     // Convert back to ImageBuffer
     ImageBuffer result2;

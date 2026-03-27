@@ -102,7 +102,6 @@ public class FaceVaultStorage {
             return nil
         }
         
-        print("✅ FaceVault: Secure Enclave key created")
         return key
     }
     

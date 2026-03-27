@@ -30,14 +30,9 @@ public class FaceVaultSegmentorML{
             let config = MLModelConfiguration()
             config.computeUnits = .all
             model = try MLModel(contentsOf: url, configuration: config)
-            print("✅ FaceVault: BiSeNet segmentor loaded")
-            
-            // Print input/output names
             model?.modelDescription.inputDescriptionsByName.forEach { name, _ in
-                print("📥 Segmentor input: \(name)")
             }
             model?.modelDescription.outputDescriptionsByName.forEach { name, _ in
-                print("📤 Segmentor output: \(name)")
             }
         } catch {
             print("❌ FaceVault: Failed to load segmentor — \(error)")
@@ -102,7 +97,6 @@ public class FaceVaultSegmentorML{
                 output.featureNames.forEach { print("📤 Available: \($0)") }
                 return nil
             }
-            print("✅ FaceVault: BiSeNet output shape: \(segOutput.shape)")
             // Convert to binary mask
             return buildMask(from: segOutput, size: 512)
             

@@ -59,7 +59,6 @@ public class FaceVaultContinuousAuth: NSObject {
                       threshold: Float = 0.75,
                       maxDuration: TimeInterval) {
         
-        print("✅ FaceVault: Continuous auth started — interval:\(interval)s max:\(maxDuration)s")
 
         self.storedEmbedding = storedEmbedding
         self.checkInterval   = interval
@@ -82,12 +81,10 @@ public class FaceVaultContinuousAuth: NSObject {
             DispatchQueue.main.asyncAfter(deadline: .now() + maxDuration) {
                 [weak self] in
                 guard let self, self.isRunning else { return }
-                print("⏱ FaceVault: Continuous auth ended — 2 minutes")
                 self.stop()
             }
         }
         
-        print("✅ FaceVault: Continuous auth started — interval:\(interval)s max:\(maxDuration)s")
     }
     
     
@@ -97,7 +94,6 @@ public class FaceVaultContinuousAuth: NSObject {
         timer?.invalidate()
         timer = nil
         camera.stop()
-        print("✅ FaceVault: Continuous auth stopped")
         DispatchQueue.main.async {
             self.onStopped?()  // ← make sure this fires
         }
@@ -108,7 +104,6 @@ public class FaceVaultContinuousAuth: NSObject {
     @objc private func performCheck() {
         guard isRunning, !isChecking else { return }
         isChecking = true
-        print("🔄 FaceVault: Continuous auth check...")
         // Frame will come through camera delegate
     }
     
@@ -208,7 +203,6 @@ public class FaceVaultContinuousAuth: NSObject {
             let nsB = stored.map   { NSNumber(value: $0) }
             let score = self.bridge.cosineSimilarity(nsA, b: nsB)
             
-            print("🔄 FaceVault: Continuous check — score: \(score)")
             
             DispatchQueue.main.async {
                 if score >= self.matchThreshold {

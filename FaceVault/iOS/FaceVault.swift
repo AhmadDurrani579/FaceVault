@@ -58,6 +58,9 @@ public class FaceVaultSDK: NSObject {
     private var lastSegmentTime: Date = .distantPast
     private static var continuousAuthHandlerKey: UInt8 = 0
     private var lastPixelBuffer: CVPixelBuffer?
+    
+    private var capturedZones: Set<String> = []
+    private let totalZones = 5
 
     public var onContinuousAuthStopped: (() -> Void)? {
         didSet {
@@ -70,7 +73,7 @@ public class FaceVaultSDK: NSObject {
         super.init()
         vision.delegate   = self
         liveness.delegate = self
-        warmUp()
+//        warmUp()
     }
     
     private func warmUp() {
@@ -80,8 +83,7 @@ public class FaceVaultSDK: NSObject {
             CVPixelBufferCreate(nil, 112, 112, kCVPixelFormatType_32BGRA, nil, &pixelBuffer)
             if let buffer = pixelBuffer {
                 _ = self.embedder.generateEmbedding(from: buffer)
-                _ = self.segmentorML.generateMask(from: buffer) // ← warm up BiSeNet too
-                print("✅ FaceVault: Models warmed up")
+                _ = self.segmentorML.generateMask(from: buffer)
             }
         }
     }
@@ -90,6 +92,34 @@ public class FaceVaultSDK: NSObject {
         previewView?.attachCameraSession(camera.captureSession)
     }
     
+    public func prepare(completion: @escaping () -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            
+            var pixelBuffer: CVPixelBuffer?
+            CVPixelBufferCreate(nil, 112, 112, kCVPixelFormatType_32BGRA, nil, &pixelBuffer)
+            
+            if let buffer = pixelBuffer {
+                _ = self.embedder.generateEmbedding(from: buffer)
+            }
+            
+            DispatchQueue.main.async {
+                completion()
+            }
+        }
+    }
+    
+    public func isEnrolled() -> Bool {
+        return storage.hasEnrolledFace()
+    }
+    
+    public func logout() {
+        _ = storage.deleteEmbedding()
+        storedEmbedding = nil
+        stop()
+        stopContinuousAuth()
+    }
+
 
     // MARK: - Public API
     public func enroll(completion: @escaping (Bool) -> Void) {
@@ -98,64 +128,102 @@ public class FaceVaultSDK: NSObject {
         return
         #endif
         
-        self.stop()
-        
         isEnrolling = true
         enrollCompleted = false
         enrollCompletion = completion
         currentEmbedding = nil
         enrollEmbeddings = []
+        capturedZones = []          // ← reset zones
         
-        previewView?.showMessage("🔐 Setting up secure storage...")
+        previewView?.resetProgress() // ← reset progress ring
+        previewView?.showMessage("Position your face in the oval")
         
-        // Face ID first
+        // Start ARKit IMMEDIATELY
+        liveness.startEnrollMode()
+        attachLivenessPreview()
+        
+        // Face ID in background — no 8 second timer
+        // Zones control when enroll finishes
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             _ = self.storage.deleteEmbedding()
-            Thread.sleep(forTimeInterval: 0.5)
+        }
+    }
+    
+    private func updateEnrollProgress(yaw: Float, pitch: Float) {
+        guard isEnrolling else { return }
+        
+        var zone = ""
+        
+        if abs(yaw) < 0.1 && abs(pitch) < 0.1 {
+            zone = "center"
+        } else if yaw < -0.2 {  // ← stricter threshold
+            zone = "left"
+        } else if yaw > 0.2 {
+            zone = "right"
+        } else if pitch > 0.2 {
+            zone = "up"
+        } else if pitch < -0.2 {
+            zone = "down"
+        }
+        
+        guard !zone.isEmpty, !capturedZones.contains(zone) else { return }
+        
+        // Delay between zone captures — feels more deliberate
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+            guard let self, self.isEnrolling else { return }
+            guard !self.capturedZones.contains(zone) else { return }
             
-            DispatchQueue.main.async {
-                self.previewView?.showMessage("Position your face in the oval")
-                
-                // Use ARKit — same as authenticate
-                self.liveness.startEnrollMode() // no challenges, just frames
-                self.attachLivenessPreview()
-                
-                // Countdown
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                    self.previewView?.showMessage("Hold still... 3")
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                        self.previewView?.showMessage("Hold still... 2")
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                            self.previewView?.showMessage("Hold still... 1")
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                                self.finishEnroll(completion: completion)
-                            }
-                        }
-                    }
+            self.capturedZones.insert(zone)
+            let progress = Float(self.capturedZones.count) / Float(self.totalZones)
+            
+            // Animate progress slowly
+            self.previewView?.updateProgress(progress)
+            
+            switch self.capturedZones.count {
+            case 1: self.previewView?.showMessage("Move your head slowly...")
+            case 2: self.previewView?.showMessage("Keep going...")
+            case 3: self.previewView?.showMessage("A little more...")
+            case 4: self.previewView?.showMessage("Almost there...")
+            case 5:
+                self.previewView?.showMessage("✅ Scan complete!")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    self.finishEnroll(completion: self.enrollCompletion ?? { _ in })
                 }
+            default: break
             }
         }
     }
+
+    
     private func finishEnroll(completion: @escaping (Bool) -> Void) {
-        camera.stop()
+        guard !enrollCompleted else { return }
+        enrollCompleted = true
+        
+        // Stop ARKit first
+        liveness.stop()
         
         guard !enrollEmbeddings.isEmpty else {
-            previewView?.showMessage("❌ No face detected. Try again.")
+            previewView?.showMessage("❌ No face detected — try again")
             completion(false)
             return
         }
         
-        // Average all collected embeddings
+        previewView?.showMessage("✅ Scan complete — verifying identity...")
+        
+        // Average embeddings
         let avgEmbedding = averageEmbeddings(enrollEmbeddings)
         
-        // Save to Secure Enclave
+        // Save AFTER ARKit stops — no conflict
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
+            
+            // Small delay — let ARKit fully release
+            Thread.sleep(forTimeInterval: 0.5)
+            
             let saved = self.storage.saveEmbedding(avgEmbedding)
             self.storedEmbedding = avgEmbedding
             
-            print(saved ? "✅ FaceVault: Face enrolled — \(self.enrollEmbeddings.count) frames averaged" : "❌ FaceVault: Save failed")
             
             DispatchQueue.main.async {
                 completion(saved)
@@ -193,13 +261,15 @@ public class FaceVaultSDK: NSObject {
         challengePassed = false
         livenessScore = 0
         currentEmbedding = nil
-        liveEmbeddings = []  // ← reset here ✅
+        liveEmbeddings = []
         
+        previewView?.showMessage("🔐 Authenticating...")
+        
+        // Load embedding in background — show UI immediately
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             
             guard let stored = self.storage.loadEmbedding() else {
-                print("❌ FaceVault: No enrolled face found")
                 DispatchQueue.main.async { completion(.deniedInsufficientData) }
                 return
             }
@@ -207,11 +277,9 @@ public class FaceVaultSDK: NSObject {
             self.storedEmbedding = stored
             
             DispatchQueue.main.async {
-                self.previewView?.showMessage("Verifying Liveness...")
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                    self.liveness.start()
-                    self.attachLivenessPreview()
-                }
+                self.previewView?.showMessage("Position your face in the oval")
+                self.liveness.start()
+                self.attachLivenessPreview()
             }
         }
     }
@@ -269,12 +337,10 @@ public class FaceVaultSDK: NSObject {
             // Average multiple frames
             let nsLive = liveEmbeddings.map { $0.map { NSNumber(value: $0) } }
             embeddingScore = bridge.match(withAveraging: nsLive, stored: nsB)
-            print("📊 Using \(liveEmbeddings.count) frame average")
         } else if let current = currentEmbedding {
             // Fallback — single frame
             let nsA = current.map { NSNumber(value: $0) }
             embeddingScore = bridge.cosineSimilarity(nsA, b: nsB)
-            print("📊 Using single frame")
         } else {
             DispatchQueue.main.async { [weak self] in
                 self?.onResult?(.requiresRetry)
@@ -282,8 +348,6 @@ public class FaceVaultSDK: NSObject {
             }
             return
         }
-        
-        print("📊 embeddingScore=\(embeddingScore) livenessScore=\(livenessScore) challengePassed=\(challengePassed) singleFace=\(singleFaceDetected) landmarks=\(landmarkCount)")
         
         let input = FaceVaultDecisionInput()
         input.embeddingScore     = embeddingScore
@@ -294,7 +358,6 @@ public class FaceVaultSDK: NSObject {
         
         let engine = FaceVaultDecisionBridge()
         let resultCode = engine.evaluate(input)
-        print("🔍 resultCode = \(resultCode)")
         
         let faceVaultResult: FaceVaultResult
         switch resultCode {
@@ -316,16 +379,38 @@ public class FaceVaultSDK: NSObject {
 
 // MARK: - Vision Delegate
 extension FaceVaultSDK: FaceVaultVisionDelegate {
+    
     public func vision(_ vision: FaceVaultVision, didDetect landmarks: FaceLandmarks) {
         singleFaceDetected = true
         landmarkCount = landmarks.landmarks.count
         lastLandmarks = landmarks
+        
+        // Only show landmarks during authenticate, not enroll
+//        if !isEnrolling {
+//            previewView?.updateLandmarks(landmarks.landmarks, boundingBox: landmarks.boundingBox)
+//        } else {
+//            previewView?.clearLandmarks() // ← hide during enroll
+//        }
+        
+        previewView?.clearLandmarks()
+        previewView?.hideMultipleFacesWarning()
+
+        
+        if isEnrolling {
+            updateEnrollProgress(yaw: landmarks.yaw, pitch: landmarks.pitch)
+        }
     }
     
     public func visionDidLoseFace(_ vision: FaceVaultVision) {
         singleFaceDetected = false
         landmarkCount = 0
-        previewView?.showAngleWarning()
+        previewView?.clearLandmarks()
+        
+        if isEnrolling {
+            previewView?.showMessage("👤 Please show your face")
+        } else {
+            previewView?.showAngleWarning()
+        }
     }
     
     public func visionDidDetectMultipleFaces(_ vision: FaceVaultVision, count: Int) {
@@ -373,7 +458,6 @@ extension FaceVaultSDK: FaceVaultLivenessDelegate {
                 }
             
         case .failed(let reason):
-            print("❌ FaceVault: Liveness failed — \(reason)")
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 if self.isEnrolling {
@@ -391,7 +475,6 @@ extension FaceVaultSDK: FaceVaultLivenessDelegate {
     
     public func liveness(_ liveness: FaceVaultLiveness, requiresChallenge challenge: LivenessChallenge) {
         previewView?.showChallenge(challenge)
-        print("🎯 FaceVault: Challenge required — \(challenge)")
     }
     
     public func liveness(_ liveness: FaceVaultLiveness, didCaptureFrame pixelBuffer: CVPixelBuffer) {
@@ -445,7 +528,6 @@ extension FaceVaultSDK: FaceVaultLivenessDelegate {
             // BiSeNet — only every 2 seconds
             let finalBuffer: CVPixelBuffer
             if runBiSeNet, let _ = self.segmentorML.generateMask(from: bufferToUse) {
-                print("✅ FaceVault: BiSeNet mask applied")
                 finalBuffer = bufferToUse
             } else {
                 finalBuffer = bufferToUse
@@ -458,14 +540,12 @@ extension FaceVaultSDK: FaceVaultLivenessDelegate {
                 // Stop collecting after max frames
                 guard self.enrollEmbeddings.count < self.maxEnrollFrames else { return }
                 self.enrollEmbeddings.append(embedding)
-                print("✅ FaceVault: Enroll frame \(self.enrollEmbeddings.count)/\(self.maxEnrollFrames)")
                 DispatchQueue.main.async {
                     self.previewView?.showMessage("Scanning... \(self.enrollEmbeddings.count)/\(self.maxEnrollFrames)")
                 }
             } else {
                 guard self.liveEmbeddings.count < self.maxLiveFrames else { return }
                 self.liveEmbeddings.append(embedding)
-                print("✅ FaceVault: Live frame \(self.liveEmbeddings.count)/\(self.maxLiveFrames)")
                 self.currentEmbedding = embedding
             }
         }
@@ -474,7 +554,6 @@ extension FaceVaultSDK: FaceVaultLivenessDelegate {
     public func estimateAge(threshold: Int = 18,
                              completion: @escaping (FaceVaultAgeResult?) -> Void) {
         guard let pixelBuffer = lastPixelBuffer else {
-            print("❌ FaceVault: No frame available for age estimation")
             completion(nil)
             return
         }
@@ -491,7 +570,6 @@ extension FaceVaultSDK: FaceVaultLivenessDelegate {
     
     public func stopContinuousAuth() {
         continuousAuth.stop()
-        print("✅ FaceVault: Continuous auth stopped")
     }
     
     // 1 minute = 60 seconds
@@ -503,7 +581,6 @@ extension FaceVaultSDK: FaceVaultLivenessDelegate {
                                      maxDuration: TimeInterval = 120.0,
                                      onEvent: @escaping (ContinuousAuthEvent) -> Void) {
         guard let stored = storedEmbedding else {
-            print("❌ FaceVault: No enrolled face")
             return
         }
         
@@ -516,7 +593,6 @@ extension FaceVaultSDK: FaceVaultLivenessDelegate {
         
         // Handle when continuous auth stops
         continuousAuth.onStopped = {
-            print("✅ FaceVault: Continuous auth session ended")
         }
         
         continuousAuth.start(storedEmbedding: stored,
@@ -525,6 +601,12 @@ extension FaceVaultSDK: FaceVaultLivenessDelegate {
                               maxDuration: maxDuration)
     }
 
+    public func liveness(_ liveness: FaceVaultLiveness,
+                         didUpdateHeadPose yaw: Float, pitch: Float) {
+        if isEnrolling {
+            updateEnrollProgress(yaw: yaw, pitch: pitch)
+        }
+    }
 }
 
 extension FaceVaultSDK: FaceVaultCameraDelegate {
@@ -646,7 +728,6 @@ extension FaceVaultSDK: FaceVaultCameraDelegate {
             self.enrollEmbeddings.append(embedding)
 
             let count = self.enrollEmbeddings.count
-            print("✅ FaceVault: Enroll frame \(count)/\(self.maxEnrollFrames)")
             
             DispatchQueue.main.async {
                 self.previewView?.showMessage("✅ Scanning \(count)/\(self.maxEnrollFrames)")

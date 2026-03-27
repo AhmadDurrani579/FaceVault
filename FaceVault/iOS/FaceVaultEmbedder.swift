@@ -26,20 +26,15 @@ public class FaceVaultEmbedder {
                     ?? bundle.url(forResource: "FaceVaultEmbedder", withExtension: "mlmodelc")
         
         guard let url = modelURL else {
-            print(" FaceVault: Could not find embedding model")
             return
         }
         do {
             let config = MLModelConfiguration()
             config.computeUnits = .all
             model = try MLModel(contentsOf: url, configuration: config)
-            print("✅ FaceVault: Embedding model loaded from \(url.lastPathComponent)")
             model?.modelDescription.inputDescriptionsByName.forEach { name, desc in
-                print("📥 Model input: \(name) — \(desc.type)")
             }
-
             model?.modelDescription.outputDescriptionsByName.forEach { name, desc in
-                print("📤 Model output: \(name) — \(desc.type)")
             }
 
         } catch {
@@ -52,7 +47,6 @@ public class FaceVaultEmbedder {
         guard let model else { return nil }
         
         guard let resized = resize(pixelBuffer: pixelBuffer, to: CGSize(width: 112, height: 112)) else {
-            print("❌ FaceVault: Could not resize")
             return nil
         }
         
@@ -89,7 +83,6 @@ public class FaceVaultEmbedder {
             let output = try model.prediction(from: input)
             
             guard let embedding = output.featureValue(for: "embedding")?.multiArrayValue else {
-                print("❌ FaceVault: No embedding in output")
                 return nil
             }
             
@@ -99,11 +92,9 @@ public class FaceVaultEmbedder {
                 result[i] = embedding[i].floatValue
             }
             
-            print("✅ FaceVault: Embedding generated — \(length) dims")
             return result
             
         } catch {
-            print("❌ FaceVault: Inference failed — \(error)")
             return nil
         }
     }

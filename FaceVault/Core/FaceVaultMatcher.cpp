@@ -45,7 +45,6 @@ std::vector<float> Matcher::averageEmbeddings(
     float count = static_cast<float>(embeddings.size());
     for (auto& v : avg) v /= count;
 
-    printf("✅ FaceVault: Averaged %zu embeddings\n", embeddings.size());
     return avg;
 }
 

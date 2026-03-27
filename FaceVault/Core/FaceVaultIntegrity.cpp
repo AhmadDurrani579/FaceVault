@@ -28,7 +28,6 @@ IntegrityResult IntegrityChecker::check() const {
         result.isJailbroken = true;
         result.passed       = false;
         result.reason       = "Jailbreak detected";
-        printf("⚠️ FaceVault: Jailbreak detected\n");
         return result;
     }
     
@@ -37,7 +36,6 @@ IntegrityResult IntegrityChecker::check() const {
         result.isDebuggerAttached = true;
         result.passed             = false;
         result.reason             = "Debugger attached";
-        printf("⚠️ FaceVault: Debugger detected\n");
         return result;
     }
 
@@ -46,7 +44,6 @@ IntegrityResult IntegrityChecker::check() const {
         result.isMemoryTampered = true;
         result.passed           = false;
         result.reason           = "Suspicious library detected";
-        printf("⚠️ FaceVault: Suspicious library detected\n");
         return result;
     }
 
@@ -55,11 +52,9 @@ IntegrityResult IntegrityChecker::check() const {
         result.isMemoryTampered = true;
         result.passed           = false;
         result.reason           = "Dyld hooks detected";
-        printf("⚠️ FaceVault: Dyld hooks detected\n");
         return result;
     }
 
-    printf("✅ FaceVault: Integrity checks passed\n");
     return result;
 
 }

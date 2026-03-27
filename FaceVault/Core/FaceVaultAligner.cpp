@@ -38,16 +38,12 @@ AlignResult FaceAligner::align(const ImageBuffer &croppedFace,
         float srcRightX = rightEyeX * croppedFace.width;
         float srcRightY = rightEyeY * croppedFace.height;
 
-        printf("👁 Eyes — left:(%.1f,%.1f) right:(%.1f,%.1f)\n",
-               srcLeftX, srcLeftY, srcRightX, srcRightY);
-
         // Step 2 — calculate rotation angle
         float dx = srcRightX - srcLeftX;
         float dy = srcRightY - srcLeftY;
         float angle = std::atan2(dy, dx) * 180.0f / M_PI;
 
         result.rollAngle = angle;
-        printf("🔄 Alignment angle: %.2f degrees\n", angle);
 
         // Step 3 — calculate scale
         float srcDist = std::sqrt(dx * dx + dy * dy);
@@ -78,8 +74,6 @@ AlignResult FaceAligner::align(const ImageBuffer &croppedFace,
                        cv::INTER_LINEAR,
                        cv::BORDER_REFLECT);
 
-        printf("✅ FaceVault C++: Face aligned — angle:%.2f scale:%.2f\n",
-               angle, scale);
 
         // Convert back to ImageBuffer
         ImageBuffer output;

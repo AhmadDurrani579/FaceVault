@@ -9,24 +9,26 @@ import UIKit
 import FaceVault
 
 class ViewController: UIViewController {
+    
     let sdk = FaceVaultSDK()
     let previewView = FaceVaultPreviewView()
-
+    
+    // MARK: - Lifecycle
     override func viewDidLoad() {
         super.viewDidLoad()
-        
         setupPreview()
+        previewView.showMessage("🔐 Initializing...")
         
-        // Show loading first
-        previewView.showMessage("Loading FaceVault...")
-        
-        // Wait for warmup then start
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            self.startEnrollment()
+        sdk.prepare {
+            if self.sdk.isEnrolled() {
+                self.startAuthentication()
+            } else {
+                self.startEnrollment()
+            }
         }
-        // Do any additional setup after loading the view.
     }
     
+    // MARK: - Setup
     private func setupPreview() {
         previewView.frame = view.bounds
         previewView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -34,11 +36,94 @@ class ViewController: UIViewController {
         sdk.attachPreview(previewView)
     }
     
+    // MARK: - Enrollment
+    private func startEnrollment() {
+        sdk.enroll { success in
+            DispatchQueue.main.async {
+                if success {
+                    self.startAuthentication()
+                } else {
+                    self.previewView.showMessage("❌ Enrollment failed — try again")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                        self.startEnrollment()
+                    }
+                }
+            }
+        }
+    }
+    
+    // MARK: - Authentication
+    private func startAuthentication() {
+        sdk.authenticate { result in
+            DispatchQueue.main.async {
+                switch result {
+                case .authenticated(let confidence):
+                    self.onAuthenticated(confidence: confidence)
+                    
+                case .deniedNoMatch:
+                    self.previewView.showMessage("❌ Face does not match")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                        self.startAuthentication()
+                    }
+                    
+                case .deniedLiveness:
+                    self.previewView.showMessage("❌ Liveness check failed")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                        self.startAuthentication()
+                    }
+                    
+                case .deniedMultipleFaces:
+                    self.previewView.showMessage("❌ Multiple faces detected")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                        self.startAuthentication()
+                    }
+                case .deniedInsufficientData:
+                    self.startEnrollment()
+                    
+                case .requiresRetry:
+                    self.startAuthentication()
+                    
+                case .deniedTampered:
+                    self.previewView.showMessage("❌ Security violation detected")
+                }
+            }
+        }
+    }
+    
+    // MARK: - Post Authentication
+    private func onAuthenticated(confidence: Float) {
+        previewView.showMessage("✅ Authenticated!")
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            self.previewView.isHidden = true
+            self.setupLogoutButton()
+            self.startContinuousAuth()
+        }
+    }
+    
+    private func startContinuousAuth() {
+        sdk.onContinuousAuthStopped = {
+            DispatchQueue.main.async {
+                self.blurScreen(false)
+            }
+        }
+        
+        sdk.startContinuousAuth(interval: 1.0, maxDuration: 120.0) { event in
+            switch event {
+            case .faceVerified:  self.blurScreen(false)
+            case .faceLost:      self.blurScreen(true)
+            case .faceChanged:   self.lockApp()
+            case .multipleFaces: self.blurScreen(true)
+            }
+        }
+    }
+    
+    // MARK: - UI Helpers
     private func blurScreen(_ blur: Bool) {
         DispatchQueue.main.async {
             if blur {
-                let blurEffect = UIBlurEffect(style: .dark)
-                let blurView = UIVisualEffectView(effect: blurEffect)
+                guard self.view.viewWithTag(999) == nil else { return }
+                let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .dark))
                 blurView.frame = self.view.bounds
                 blurView.tag = 999
                 self.view.addSubview(blurView)
@@ -55,105 +140,33 @@ class ViewController: UIViewController {
             }
         }
     }
-
+    
     private func lockApp() {
-        DispatchQueue.main.async {
-            self.sdk.stopContinuousAuth()
-            self.blurScreen(false)
-            self.previewView.isHidden = false
-            self.previewView.showMessage("🔒 Session expired — please re-authenticate")
-            // Re-authenticate
-//            self.startAuthentication()
-        }
+        sdk.stopContinuousAuth()
+        blurScreen(false)
+        previewView.isHidden = false
+        previewView.showMessage("🔒 Session expired")
     }
     
-    private func startEnrollment() {
-        previewView.showMessage("Position your face in the oval")
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            self.sdk.enroll { success in
-                DispatchQueue.main.async {
-                    if success {
-                        self.previewView.showMessage("✅ Face enrolled! Authenticating...")
-                        self.startAuthentication()
-                    } else {
-                        self.previewView.showMessage("❌ Enrollment failed. Try again.")
-                    }
-                }
-            }
-        }
+    // MARK: - Logout
+    private func setupLogoutButton() {
+        guard view.viewWithTag(998) == nil else { return }
+        let btn = UIButton(type: .system)
+        btn.setTitle("Logout", for: .normal)
+        btn.setTitleColor(.white, for: .normal)
+        btn.backgroundColor = UIColor.red.withAlphaComponent(0.7)
+        btn.layer.cornerRadius = 10
+        btn.frame = CGRect(x: 20, y: 60, width: 80, height: 36)
+        btn.tag = 998
+        btn.addTarget(self, action: #selector(logoutTapped), for: .touchUpInside)
+        view.addSubview(btn)
     }
     
-    private func startAuthentication() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            self.sdk.authenticate { result in
-                DispatchQueue.main.async {
-                    switch result {
-                    case .authenticated(let confidence):
-                        self.previewView.showMessage("✅ Authenticated! \(Int(confidence * 100))%")
-                        
-                        // Test age estimation
-                        self.sdk.estimateAge { result in
-                            if let result = result {
-                                print("👤 Age: \(result.estimatedAge)")
-                                print("👤 Range: \(result.ageRange)")
-                                print("👤 IsAdult: \(result.isAdult)")
-                                print("👤 Confidence: \(result.confidence)")
-                                self.previewView.showMessage("✅ Auth \(Int(confidence * 100))% | Age: ~\(Int(result.estimatedAge))")
-                            }
-                        }
-                        
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                            self.previewView.isHidden = true
-                            
-                            // Start continuous auth
-                            self.sdk.startContinuousAuth(interval: 1.0, maxDuration: 120.0)  { event in
-                                switch event {
-                                case .faceVerified(let score):
-                                    self.blurScreen(false) // ← hide blur when face returns
-
-                                    print("✅ Continuous: Face verified — \(score)")
-                                    
-                                case .faceLost:
-                                    print("⚠️ Continuous: Face lost — blurring")
-                                    self.blurScreen(true)
-                                    
-                                case .faceChanged(let score):
-                                    print("❌ Continuous: Different face — \(score)")
-                                    self.lockApp()
-                                    
-                                case .multipleFaces:
-                                    print("⚠️ Continuous: Multiple faces")
-                                    self.blurScreen(true)
-                                }
-                            }
-                            
-                            self.sdk.onContinuousAuthStopped = {
-                                DispatchQueue.main.async {
-                                    print("✅ Session complete — normal app")
-                                    self.blurScreen(false)
-                                    // Show your main app UI here
-                                    // Don't lock — session just expired naturally
-                                }
-                            }
-
-                        }
-                    case .deniedNoMatch:
-                        self.previewView.showMessage("❌ Face does not match")
-                    case .deniedLiveness:
-                        self.previewView.showMessage("❌ Liveness check failed")
-                    case .deniedMultipleFaces:
-                        self.previewView.showMessage("❌ Multiple faces detected")
-                    case .deniedInsufficientData:
-                        self.previewView.showMessage("❌ No enrolled face found")
-                    case .requiresRetry:
-                        self.previewView.showMessage("🔄 Please try again")
-                    case .deniedTampered:
-                        self.previewView.showMessage("❌ Security violation detected")
-                    }
-                }
-            }
-        }
+    @objc private func logoutTapped() {
+        view.viewWithTag(998)?.removeFromSuperview()
+        sdk.logout()
+        previewView.isHidden = false
+        previewView.resetProgress()
+        startEnrollment()
     }
 }
-

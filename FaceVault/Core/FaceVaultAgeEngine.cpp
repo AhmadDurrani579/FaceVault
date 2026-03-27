@@ -29,12 +29,6 @@ AgeResult AgeEngine::evaluate(float rawAge) const {
     result.confidence   = calculateConfidence(rawAge);
     result.success      = true;
 
-    printf("✅ FaceVault C++: Age — %.1f years | range: %s | adult: %s | confidence: %.2f\n",
-           rawAge,
-           result.ageRange.c_str(),
-           result.isAdult ? "yes" : "no",
-           result.confidence);
-
     return result;
 }
 

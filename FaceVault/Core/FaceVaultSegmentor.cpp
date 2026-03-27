@@ -47,8 +47,6 @@ SegmentResult FaceSegmentor::segment(const ImageBuffer& croppedFace) const {
     result.mask          = mask;
     result.success       = true;
 
-    printf("✅ FaceVault C++: Segmentation done — coverage: %.2f\n",
-           result.coverageScore);
 
     return result;
 }
@@ -120,8 +118,6 @@ ImageBuffer FaceSegmentor::grabCutSegment(const ImageBuffer& input) const {
     cv::morphologyEx(combined, combined, cv::MORPH_DILATE, kernel);
 
     int fgCount = cv::countNonZero(combined);
-    printf("Segmentation fg pixels: %d / %d\n",
-           fgCount, input.width * input.height);
 
     ImageBuffer maskOut;
     maskOut.width    = combined.cols;

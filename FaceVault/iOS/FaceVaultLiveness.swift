@@ -29,6 +29,7 @@ public protocol FaceVaultLivenessDelegate: AnyObject {
     func liveness(_ liveness: FaceVaultLiveness, didUpdate result: LivenessResult)
     func liveness(_ liveness: FaceVaultLiveness, requiresChallenge challenge: LivenessChallenge)
     func liveness(_ liveness: FaceVaultLiveness, didCaptureFrame pixelBuffer: CVPixelBuffer)
+    func liveness(_ liveness: FaceVaultLiveness, didUpdateHeadPose yaw: Float, pitch: Float)
 }
 
 // MARK: - FaceVaultLiveness
@@ -72,21 +73,18 @@ public class FaceVaultLiveness: NSObject {
         #endif
         
         guard ARFaceTrackingConfiguration.isSupported else {
-            print("❌ FaceVault: ARKit not supported")
             return
         }
         
         session = ARSession()
         session?.delegate = self
         session?.delegateQueue = DispatchQueue(label: "com.facevault.arkit", qos: .userInteractive)
-        
         let config = ARFaceTrackingConfiguration()
         config.isLightEstimationEnabled = false
         session?.run(config)
         
         isRunning = true
         generateChallengeQueue()
-        print("✅ FaceVault: Liveness session started")
     }
     
     // MARK: - Stop
@@ -94,16 +92,14 @@ public class FaceVaultLiveness: NSObject {
         session?.pause()
         session = nil
         isRunning = false
-        print("FaceVault: Liveness session stopped")
     }
     
     // MARK: - Generate Random Challenge Queue
     private func generateChallengeQueue() {
         let all: [LivenessChallenge] = [.blink, .turnLeft, .turnRight, .smile, .openMouth]
         // Always pick exactly 3 — shuffle and take first 3
-        challengeQueue = Array(all.shuffled().prefix(3))
+        challengeQueue = all.shuffled()
         completedChallenges = []
-        print("✅ FaceVault: Challenge queue — \(challengeQueue)")
         startNextChallenge()
     }
     
@@ -111,7 +107,6 @@ public class FaceVaultLiveness: NSObject {
         guard let next = challengeQueue.first else {
             // All challenges passed
             delegate?.liveness(self, didUpdate: .passed)
-            print("FaceVault: All liveness challenges passed!")
             return
         }
         
@@ -121,7 +116,6 @@ public class FaceVaultLiveness: NSObject {
         
         delegate?.liveness(self, requiresChallenge: next)
         delegate?.liveness(self, didUpdate: .inProgress(challenge: next))
-        print("FaceVault: Challenge started — \(next)")
     }
     
     public func startEnrollMode() {
@@ -142,7 +136,6 @@ public class FaceVaultLiveness: NSObject {
         
         isRunning = true
         // No challenges — just start session
-        print("✅ FaceVault: Enroll ARKit session started")
     }
     
     // MARK: - Evaluate Blend Shapes
@@ -152,7 +145,6 @@ public class FaceVaultLiveness: NSObject {
         
         if Date().timeIntervalSince(startTime) > challengeTimeout {
             delegate?.liveness(self, didUpdate: .failed(reason: "Challenge timed out"))
-            print("❌ FaceVault: Challenge timed out")
             stop()
             return
         }
@@ -163,33 +155,27 @@ public class FaceVaultLiveness: NSObject {
         case .blink:
             let left  = blendShapes[.eyeBlinkLeft]?.floatValue ?? 0
             let right = blendShapes[.eyeBlinkRight]?.floatValue ?? 0
-            print("👁 blink — left: \(left) right: \(right)")
             passed = left > blinkThreshold && right > blinkThreshold
             
         case .turnLeft:
-            print("⬅️ turnLeft — yaw: \(headYaw) threshold: \(turnThreshold)")
             passed = headYaw > turnThreshold
             
         case .turnRight:
-            print("➡️ turnRight — yaw: \(headYaw) threshold: -\(turnThreshold)")
             passed = headYaw < -turnThreshold
             
         case .smile:
             let left  = blendShapes[.mouthSmileLeft]?.floatValue ?? 0
             let right = blendShapes[.mouthSmileRight]?.floatValue ?? 0
-            print("😊 smile — left: \(left) right: \(right)")
             passed = left > smileThreshold && right > smileThreshold
             
         case .openMouth:
             let jaw = blendShapes[.jawOpen]?.floatValue ?? 0
-            print("😮 openMouth — jaw: \(jaw)")
             passed = jaw > openMouthThreshold
         }
         
         if passed {
             completedChallenges.append(challenge)
             currentChallenge = nil
-            print("✅ FaceVault: Challenge passed — \(challenge)")
             startNextChallenge()
         }
     }
@@ -204,7 +190,16 @@ extension FaceVaultLiveness: ARSessionDelegate {
         let blendShapes = faceAnchor.blendShapes
         let frame = session.currentFrame
         
-        // Frame processing on background
+        // Get yaw and pitch from ARKit transform
+        let transform = faceAnchor.transform
+        let yaw   = atan2(transform.columns.0.z, transform.columns.2.z)
+        let pitch = asin(-transform.columns.1.z)
+        
+        // Pass head pose to delegate
+        DispatchQueue.main.async { [weak self] in
+            self?.delegate?.liveness(self!, didUpdateHeadPose: yaw, pitch: pitch)
+        }
+        
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             if let pixelBuffer = frame?.capturedImage {
@@ -212,18 +207,13 @@ extension FaceVaultLiveness: ARSessionDelegate {
             }
         }
         
-        // Evaluate on main thread only
         DispatchQueue.main.async { [weak self] in
-            self?.evaluate(blendShapes: blendShapes, headYaw: {
-                let transform = faceAnchor.transform
-                return atan2(transform.columns.0.z, transform.columns.2.z)
-            }())
+            self?.evaluate(blendShapes: blendShapes, headYaw: yaw)
         }
     }
 
     
     public func session(_ session: ARSession, didFailWithError error: Error) {
-        print(" FaceVault: ARSession failed — \(error)")
         delegate?.liveness(self, didUpdate: .failed(reason: error.localizedDescription))
     }
     

@@ -73,13 +73,11 @@ public class FaceVaultVision {
         let pitch = face.pitch?.floatValue ?? 0
         let roll  = face.roll?.floatValue  ?? 0
 
-        print("📐 Face angles — yaw:\(yaw) pitch:\(pitch) roll:\(roll)")
 
         let maxAngle = Float(0.5)
         guard abs(yaw) < maxAngle &&
               abs(pitch) < maxAngle &&
               abs(roll) < maxAngle else {
-            print("⚠️ FaceVault: Face angle rejected")
             return
         }
 
