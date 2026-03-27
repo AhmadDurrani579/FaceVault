@@ -57,7 +57,7 @@ public class FaceVaultCamera: NSObject {
             device.activeVideoMaxFrameDuration = duration
             device.unlockForConfiguration()
         } catch {
-            print("❌ FaceVault: Could not set frame rate — \(error)")
+            FaceVaultLogger.log("FaceVault: Could not set frame rate ", level: .error)
         }
         
         guard let input = try? AVCaptureDeviceInput(device: device),

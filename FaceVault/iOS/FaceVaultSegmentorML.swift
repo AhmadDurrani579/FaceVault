@@ -16,26 +16,24 @@ public class FaceVaultSegmentorML{
         loadModel()
     }
     
-    private func  loadModel() {
+    private func loadModel() {
         let bundle = Bundle(for: FaceVaultSegmentorML.self)
         
         let modelURL = bundle.url(forResource: "FaceVaultSegmentor", withExtension: "mlpackage")
                     ?? bundle.url(forResource: "FaceVaultSegmentor", withExtension: "mlmodelc")
         
         guard let url = modelURL else {
-            print("❌ FaceVault: FaceVaultSegmentor model not found")
+            FaceVaultLogger.log("BiSeNet segmentor not found in bundle", level: .error)
             return
         }
+        
         do {
             let config = MLModelConfiguration()
             config.computeUnits = .all
             model = try MLModel(contentsOf: url, configuration: config)
-            model?.modelDescription.inputDescriptionsByName.forEach { name, _ in
-            }
-            model?.modelDescription.outputDescriptionsByName.forEach { name, _ in
-            }
+            FaceVaultLogger.log("BiSeNet segmentor loaded — 19 class face parsing")
         } catch {
-            print("❌ FaceVault: Failed to load segmentor — \(error)")
+            FaceVaultLogger.log("BiSeNet segmentor failed to load — \(error.localizedDescription)", level: .error)
         }
     }
     

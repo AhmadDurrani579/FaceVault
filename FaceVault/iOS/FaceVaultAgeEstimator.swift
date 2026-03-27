@@ -41,7 +41,7 @@ public class FaceVaultAgeEngine {
                                    withExtension: "mlmodelc")
         
         guard let url = modelURL else {
-            print("❌ FaceVault: Age model not found")
+            FaceVaultLogger.log("Age model not found in bundle", level: .error)
             return
         }
         
@@ -49,9 +49,10 @@ public class FaceVaultAgeEngine {
             let config = MLModelConfiguration()
             config.computeUnits = .all
             model = try MLModel(contentsOf: url, configuration: config)
-            print("✅ FaceVault: Age estimator loaded")
+            FaceVaultLogger.log("FaceVaultAgeEstimator loaded")
+
         } catch {
-            print("❌ FaceVault: Failed to load age model — \(error)")
+            FaceVaultLogger.log("FaceVaultAgeEstimator failed to load — \(error.localizedDescription)", level: .error)
         }
     }
     
@@ -59,7 +60,8 @@ public class FaceVaultAgeEngine {
     public func estimateAge(from pixelBuffer: CVPixelBuffer,
                              threshold: Int = 18) -> FaceVaultAgeResult? {
         guard let model else {
-            print("❌ FaceVault: Age model not loaded")
+            FaceVaultLogger.log("Age model not loaded", level: .error)
+
             return nil
         }
         
@@ -107,15 +109,16 @@ public class FaceVaultAgeEngine {
             let output = try model.prediction(from: input)
             
             guard let ageOutput = output.featureValue(for: "var_771")?.multiArrayValue else {
-                print("❌ FaceVault: No age output")
+                FaceVaultLogger.log("Age model var_771 No age output ", level: .error)
+
+                
                 return nil
             }
             // InsightFace — index 0 = gender, index 1 = age normalized 0-1
             let genderProb = ageOutput[0].floatValue
             let normalizedAge = ageOutput[2].floatValue  // ← index 2
             let realAge = normalizedAge * 100.0
-
-            print("📊 FaceVault: Gender prob: \(genderProb) Age: \(realAge)")
+            FaceVaultLogger.log("Age estimate — gender prob: \(String(format: "%.2f", genderProb)) age: \(String(format: "%.1f", realAge)) years")
 
             // Collect for smoothing
             ageEstimates.append(realAge)
@@ -128,7 +131,7 @@ public class FaceVaultAgeEngine {
             return result
             
         } catch {
-            print("❌ FaceVault: Age inference failed — \(error)")
+            FaceVaultLogger.log("Age inference failed ", level: .error)
             return nil
         }
     }

@@ -26,19 +26,16 @@ public class FaceVaultEmbedder {
                     ?? bundle.url(forResource: "FaceVaultEmbedder", withExtension: "mlmodelc")
         
         guard let url = modelURL else {
+            FaceVaultLogger.log("Embedding model not found in bundle", level: .error)
             return
         }
         do {
             let config = MLModelConfiguration()
             config.computeUnits = .all
             model = try MLModel(contentsOf: url, configuration: config)
-            model?.modelDescription.inputDescriptionsByName.forEach { name, desc in
-            }
-            model?.modelDescription.outputDescriptionsByName.forEach { name, desc in
-            }
-
+            FaceVaultLogger.log("Embedding model loaded — ArcFace R100 512-dim")
         } catch {
-            print(" FaceVault: Failed to load model — \(error)")
+            FaceVaultLogger.log("Embedding model failed to load — \(error.localizedDescription)", level: .error)
         }
     }
 

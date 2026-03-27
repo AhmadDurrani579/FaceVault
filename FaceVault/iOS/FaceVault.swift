@@ -73,6 +73,8 @@ public class FaceVaultSDK: NSObject {
         super.init()
         vision.delegate   = self
         liveness.delegate = self
+        FaceVaultLogger.log("FaceVault SDK initialized")
+
 //        warmUp()
     }
     
@@ -93,6 +95,7 @@ public class FaceVaultSDK: NSObject {
     }
     
     public func prepare(completion: @escaping () -> Void) {
+        FaceVaultLogger.log("Preparing SDK — warming up models...")
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             
@@ -102,7 +105,8 @@ public class FaceVaultSDK: NSObject {
             if let buffer = pixelBuffer {
                 _ = self.embedder.generateEmbedding(from: buffer)
             }
-            
+            FaceVaultLogger.log("SDK ready")
+
             DispatchQueue.main.async {
                 completion()
             }
@@ -110,7 +114,9 @@ public class FaceVaultSDK: NSObject {
     }
     
     public func isEnrolled() -> Bool {
-        return storage.hasEnrolledFace()
+        let enrolled = storage.hasEnrolledFace()
+        FaceVaultLogger.log("Enrollment status: \(enrolled ? "enrolled" : "not enrolled")")
+        return enrolled
     }
     
     public func logout() {
@@ -118,6 +124,8 @@ public class FaceVaultSDK: NSObject {
         storedEmbedding = nil
         stop()
         stopContinuousAuth()
+        FaceVaultLogger.log("Logged out — embedding deleted")
+
     }
 
 
@@ -127,7 +135,8 @@ public class FaceVaultSDK: NSObject {
         completion(false)
         return
         #endif
-        
+        FaceVaultLogger.log("Enrollment started")
+
         isEnrolling = true
         enrollCompleted = false
         enrollCompletion = completion
@@ -176,7 +185,8 @@ public class FaceVaultSDK: NSObject {
             
             self.capturedZones.insert(zone)
             let progress = Float(self.capturedZones.count) / Float(self.totalZones)
-            
+            FaceVaultLogger.log("Zone captured — \(zone) (\(self.capturedZones.count)/\(self.totalZones))")
+
             // Animate progress slowly
             self.previewView?.updateProgress(progress)
             
@@ -204,6 +214,7 @@ public class FaceVaultSDK: NSObject {
         liveness.stop()
         
         guard !enrollEmbeddings.isEmpty else {
+            FaceVaultLogger.log("Enrollment failed — no frames captured", level: .error)
             previewView?.showMessage("❌ No face detected — try again")
             completion(false)
             return
@@ -223,7 +234,8 @@ public class FaceVaultSDK: NSObject {
             
             let saved = self.storage.saveEmbedding(avgEmbedding)
             self.storedEmbedding = avgEmbedding
-            
+            FaceVaultLogger.log(saved ? "Enrollment complete — \(self.enrollEmbeddings.count) frames averaged" : "Enrollment failed — could not save embedding", level: saved ? .info : .error)
+
             
             DispatchQueue.main.async {
                 completion(saved)
@@ -253,7 +265,8 @@ public class FaceVaultSDK: NSObject {
         completion(.deniedInsufficientData)
         return
         #endif
-        
+        FaceVaultLogger.log("Authentication started")
+
         self.stop()
         
         isEnrolling = false
@@ -270,6 +283,8 @@ public class FaceVaultSDK: NSObject {
             guard let self else { return }
             
             guard let stored = self.storage.loadEmbedding() else {
+                FaceVaultLogger.log("Authentication failed — no enrolled face", level: .error)
+
                 DispatchQueue.main.async { completion(.deniedInsufficientData) }
                 return
             }
@@ -337,10 +352,14 @@ public class FaceVaultSDK: NSObject {
             // Average multiple frames
             let nsLive = liveEmbeddings.map { $0.map { NSNumber(value: $0) } }
             embeddingScore = bridge.match(withAveraging: nsLive, stored: nsB)
+            FaceVaultLogger.log("Embedding score — \(String(format: "%.2f", embeddingScore)) (\(liveEmbeddings.count) frames averaged)")
+
         } else if let current = currentEmbedding {
             // Fallback — single frame
             let nsA = current.map { NSNumber(value: $0) }
             embeddingScore = bridge.cosineSimilarity(nsA, b: nsB)
+            FaceVaultLogger.log("Embedding score — \(String(format: "%.2f", embeddingScore)) (single frame)")
+
         } else {
             DispatchQueue.main.async { [weak self] in
                 self?.onResult?(.requiresRetry)
@@ -361,14 +380,28 @@ public class FaceVaultSDK: NSObject {
         
         let faceVaultResult: FaceVaultResult
         switch resultCode {
-        case 0: faceVaultResult = .authenticated(confidence: embeddingScore)
-        case 1: faceVaultResult = .deniedLiveness
-        case 2: faceVaultResult = .deniedNoMatch
-        case 3: faceVaultResult = .deniedMultipleFaces
-        case 4: faceVaultResult = .deniedInsufficientData
-        case 5: faceVaultResult = .deniedTampered
-        default: faceVaultResult = .requiresRetry
+        case 0:
+            faceVaultResult = .authenticated(confidence: embeddingScore)
+            FaceVaultLogger.log("Authenticated — confidence: \(String(format: "%.2f", embeddingScore))")
+        case 1:
+            faceVaultResult = .deniedLiveness
+            FaceVaultLogger.log("Denied — liveness failed", level: .warning)
+        case 2:
+            faceVaultResult = .deniedNoMatch
+            FaceVaultLogger.log("Denied — face does not match", level: .warning)
+        case 3:
+            faceVaultResult = .deniedMultipleFaces
+            FaceVaultLogger.log("Denied — multiple faces", level: .warning)
+        case 4:
+            faceVaultResult = .deniedInsufficientData
+            FaceVaultLogger.log("Denied — insufficient data", level: .warning)
+        case 5:
+            faceVaultResult = .deniedTampered
+            FaceVaultLogger.log("Denied — security violation", level: .error)
+        default:
+            faceVaultResult = .requiresRetry
         }
+
         
         DispatchQueue.main.async { [weak self] in
             self?.stop()
@@ -534,15 +567,11 @@ extension FaceVaultSDK: FaceVaultLivenessDelegate {
             }
             
             guard let embedding = self.embedder.generateEmbedding(from: finalBuffer) else { return }
-            guard let embedding = self.embedder.generateEmbedding(from: finalBuffer) else { return }
-            
             if self.isEnrolling {
                 // Stop collecting after max frames
                 guard self.enrollEmbeddings.count < self.maxEnrollFrames else { return }
                 self.enrollEmbeddings.append(embedding)
-                DispatchQueue.main.async {
-                    self.previewView?.showMessage("Scanning... \(self.enrollEmbeddings.count)/\(self.maxEnrollFrames)")
-                }
+                FaceVaultLogger.log("Enroll frame \(self.enrollEmbeddings.count)/\(self.maxEnrollFrames)")
             } else {
                 guard self.liveEmbeddings.count < self.maxLiveFrames else { return }
                 self.liveEmbeddings.append(embedding)
@@ -551,17 +580,29 @@ extension FaceVaultSDK: FaceVaultLivenessDelegate {
         }
     }
     
+    public static func enableLogging() {
+        FaceVaultLogger.isEnabled = true
+        FaceVaultLogger.log("FaceVault SDK — logging enabled")
+    }
+
+    
     public func estimateAge(threshold: Int = 18,
                              completion: @escaping (FaceVaultAgeResult?) -> Void) {
         guard let pixelBuffer = lastPixelBuffer else {
+            FaceVaultLogger.log("Age estimation failed — no pixel buffer", level: .warning)
+
             completion(nil)
             return
         }
-        print("📸 Pixel buffer stored for age estimation")
+        FaceVaultLogger.log("Pixel buffer stored for age estimation")
+
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             let result = self.ageEstimator.estimateAge(from: pixelBuffer,
                                                         threshold: threshold)
+            if let r = result {
+                FaceVaultLogger.log("Age estimate — \(String(format: "%.1f", r.estimatedAge)) years | range: \(r.ageRange) | adult: \(r.isAdult)")
+            }
             DispatchQueue.main.async {
                 completion(result)
             }
@@ -581,6 +622,8 @@ extension FaceVaultSDK: FaceVaultLivenessDelegate {
                                      maxDuration: TimeInterval = 120.0,
                                      onEvent: @escaping (ContinuousAuthEvent) -> Void) {
         guard let stored = storedEmbedding else {
+            FaceVaultLogger.log("Continuous auth failed — no stored embedding", level: .error)
+
             return
         }
         
@@ -727,11 +770,11 @@ extension FaceVaultSDK: FaceVaultCameraDelegate {
             guard let embedding = self.embedder.generateEmbedding(from: processedBuffer) else { return }
             self.enrollEmbeddings.append(embedding)
 
-            let count = self.enrollEmbeddings.count
-            
-            DispatchQueue.main.async {
-                self.previewView?.showMessage("✅ Scanning \(count)/\(self.maxEnrollFrames)")
-            }
+//            let count = self.enrollEmbeddings.count
+//            
+//            DispatchQueue.main.async {
+//                self.previewView?.showMessage("✅ Scanning \(count)/\(self.maxEnrollFrames)")
+//            }
         }
     }
 }
