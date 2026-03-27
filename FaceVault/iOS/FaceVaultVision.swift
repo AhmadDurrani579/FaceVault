@@ -36,7 +36,9 @@ public class FaceVaultVision {
     
     // MARK: - Process Frame
 
-    public func process(pixelBuffer: CVPixelBuffer) {
+    public func process(pixelBuffer: CVPixelBuffer,
+                        orientation: CGImagePropertyOrientation = .leftMirrored,
+                        maxAngle: Float = 0.5) {
         currentPixelBuffer = pixelBuffer
         let request = VNDetectFaceLandmarksRequest { [weak self] request, error in
             guard let self else { return }
@@ -59,7 +61,7 @@ public class FaceVaultVision {
             }
         }
         
-        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .leftMirrored, options: [:])
+        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: orientation, options: [:])
         try? handler.perform([request])
     }
     
@@ -70,13 +72,17 @@ public class FaceVaultVision {
         let yaw   = face.yaw?.floatValue   ?? 0
         let pitch = face.pitch?.floatValue ?? 0
         let roll  = face.roll?.floatValue  ?? 0
-        
+
+        print("📐 Face angles — yaw:\(yaw) pitch:\(pitch) roll:\(roll)")
+
         let maxAngle = Float(0.5)
-        guard abs(yaw) < maxAngle && abs(pitch) < maxAngle && abs(roll) < maxAngle else {
+        guard abs(yaw) < maxAngle &&
+              abs(pitch) < maxAngle &&
+              abs(roll) < maxAngle else {
             print("⚠️ FaceVault: Face angle rejected")
             return
         }
-        
+
         let points = allPoints.normalizedPoints.map { CGPoint(x: $0.x, y: $0.y) }
         
         // Extract eye centers from landmarks
@@ -104,8 +110,8 @@ public class FaceVaultVision {
             pitch:       pitch,
             roll:        roll,
             pixelBuffer: currentPixelBuffer,
-            leftEye:     leftEye,   // ← add
-            rightEye:    rightEye   // ← add
+            leftEye:     leftEye,
+            rightEye:    rightEye
         )
         
         DispatchQueue.main.async {

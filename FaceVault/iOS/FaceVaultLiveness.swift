@@ -100,8 +100,10 @@ public class FaceVaultLiveness: NSObject {
     // MARK: - Generate Random Challenge Queue
     private func generateChallengeQueue() {
         let all: [LivenessChallenge] = [.blink, .turnLeft, .turnRight, .smile, .openMouth]
-        challengeQueue = all.shuffled().prefix(3).map { $0 }
+        // Always pick exactly 3 — shuffle and take first 3
+        challengeQueue = Array(all.shuffled().prefix(3))
         completedChallenges = []
+        print("✅ FaceVault: Challenge queue — \(challengeQueue)")
         startNextChallenge()
     }
     

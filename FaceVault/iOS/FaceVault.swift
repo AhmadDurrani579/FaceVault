@@ -32,6 +32,9 @@ public class FaceVaultSDK: NSObject {
     private let bridge    = FaceVaultMatcherBridge()
     private let storage   = FaceVaultStorage()
     private let segmentorML = FaceVaultSegmentorML()
+    private let ageEstimator = FaceVaultAgeEngine()
+
+    private lazy var continuousAuth = FaceVaultContinuousAuth()
 
     // MARK: - State
     private var onResult: ((FaceVaultResult) -> Void)?
@@ -53,7 +56,14 @@ public class FaceVaultSDK: NSObject {
     private var liveEmbeddings: [[Float]] = []
     private let maxLiveFrames = 5
     private var lastSegmentTime: Date = .distantPast
+    private static var continuousAuthHandlerKey: UInt8 = 0
+    private var lastPixelBuffer: CVPixelBuffer?
 
+    public var onContinuousAuthStopped: (() -> Void)? {
+        didSet {
+            continuousAuth.onStopped = onContinuousAuthStopped
+        }
+    }
 
     // MARK: - Init
     public override init() {
@@ -391,7 +401,7 @@ extension FaceVaultSDK: FaceVaultLivenessDelegate {
         
         let runBiSeNet = now.timeIntervalSince(lastSegmentTime) > 2.0
         if runBiSeNet { lastSegmentTime = now }
-
+        self.lastPixelBuffer = pixelBuffer
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             
@@ -460,6 +470,61 @@ extension FaceVaultSDK: FaceVaultLivenessDelegate {
             }
         }
     }
+    
+    public func estimateAge(threshold: Int = 18,
+                             completion: @escaping (FaceVaultAgeResult?) -> Void) {
+        guard let pixelBuffer = lastPixelBuffer else {
+            print("❌ FaceVault: No frame available for age estimation")
+            completion(nil)
+            return
+        }
+        
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            let result = self.ageEstimator.estimateAge(from: pixelBuffer,
+                                                        threshold: threshold)
+            DispatchQueue.main.async {
+                completion(result)
+            }
+        }
+    }
+    
+    public func stopContinuousAuth() {
+        continuousAuth.stop()
+        print("✅ FaceVault: Continuous auth stopped")
+    }
+    
+    // 1 minute = 60 seconds
+    // 2 minutes = 120 seconds
+    // Let developer decide — default 2 minutes
+
+    public func startContinuousAuth(interval: TimeInterval = 5.0,
+                                     threshold: Float = 0.75,
+                                     maxDuration: TimeInterval = 120.0,
+                                     onEvent: @escaping (ContinuousAuthEvent) -> Void) {
+        guard let stored = storedEmbedding else {
+            print("❌ FaceVault: No enrolled face")
+            return
+        }
+        
+        let handler = ContinuousAuthHandler(onEvent: onEvent)
+        continuousAuth.delegate = handler
+        objc_setAssociatedObject(self,
+                                  &FaceVaultSDK.continuousAuthHandlerKey,
+                                  handler,
+                                  .OBJC_ASSOCIATION_RETAIN)
+        
+        // Handle when continuous auth stops
+        continuousAuth.onStopped = {
+            print("✅ FaceVault: Continuous auth session ended")
+        }
+        
+        continuousAuth.start(storedEmbedding: stored,
+                              interval: interval,
+                              threshold: threshold,
+                              maxDuration: maxDuration)
+    }
+
 }
 
 extension FaceVaultSDK: FaceVaultCameraDelegate {
@@ -587,5 +652,17 @@ extension FaceVaultSDK: FaceVaultCameraDelegate {
                 self.previewView?.showMessage("✅ Scanning \(count)/\(self.maxEnrollFrames)")
             }
         }
+    }
+}
+
+// MARK: - Closure wrapper for continuous auth delegate
+private class ContinuousAuthHandler: NSObject, FaceVaultContinuousAuthDelegate {
+    let onEvent: (ContinuousAuthEvent) -> Void
+    init(onEvent: @escaping (ContinuousAuthEvent) -> Void) {
+        self.onEvent = onEvent
+    }
+    func continuousAuth(_ auth: FaceVaultContinuousAuth,
+                        didDetect event: ContinuousAuthEvent) {
+        onEvent(event)
     }
 }

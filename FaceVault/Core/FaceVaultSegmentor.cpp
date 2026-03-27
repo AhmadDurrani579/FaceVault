@@ -20,9 +20,11 @@ SegmentResult FaceSegmentor::segment(const ImageBuffer& croppedFace) const {
         result.error = "Empty input";
         return result;
     }
+    
+    ImageBuffer safeCopy = croppedFace;
 
     // Step 1 — BGRA to RGB
-    ImageBuffer rgb = bgraToRgb(croppedFace);
+    ImageBuffer rgb = bgraToRgb(safeCopy);
 
     // Step 2 — GrabCut segmentation
     ImageBuffer mask = grabCutSegment(rgb);
