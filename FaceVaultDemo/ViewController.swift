@@ -59,6 +59,18 @@ class ViewController: UIViewController {
                 switch result {
                 case .authenticated(let confidence):
                     self.onAuthenticated(confidence: confidence)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                        self.sdk.estimateAge { result in
+                            if let result = result {
+                                print("👤 Age: \(result.estimatedAge)")
+                                print("👤 Range: \(result.ageRange)")
+                                print("👤 IsAdult: \(result.isAdult)")
+                            } else {
+                                print("❌ Age estimation failed — no pixel buffer")
+                            }
+                        }
+                    }
+
                     
                 case .deniedNoMatch:
                     self.previewView.showMessage("❌ Face does not match")

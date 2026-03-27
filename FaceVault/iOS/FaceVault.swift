@@ -557,7 +557,7 @@ extension FaceVaultSDK: FaceVaultLivenessDelegate {
             completion(nil)
             return
         }
-        
+        print("📸 Pixel buffer stored for age estimation")
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             let result = self.ageEstimator.estimateAge(from: pixelBuffer,

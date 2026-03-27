@@ -65,13 +65,13 @@ public class FaceVaultAgeEngine {
         
         // Resize to 224x224
         guard let resized = resize(pixelBuffer: pixelBuffer,
-                                    to: CGSize(width: 224, height: 224)) else {
+                                    to: CGSize(width: 96, height: 96)) else {
             return nil
         }
         
         do {
             // Convert to MLMultiArray
-            let array = try MLMultiArray(shape: [1, 3, 224, 224],
+            let array = try MLMultiArray(shape: [1, 3, 96, 96],
                                           dataType: .float32)
             
             CVPixelBufferLockBaseAddress(resized, .readOnly)
@@ -106,24 +106,25 @@ public class FaceVaultAgeEngine {
             
             let output = try model.prediction(from: input)
             
-            guard let ageOutput = output.featureValue(for: "ageOutput")?.multiArrayValue else {
+            guard let ageOutput = output.featureValue(for: "var_771")?.multiArrayValue else {
                 print("❌ FaceVault: No age output")
                 return nil
             }
-            
-            let rawAge = ageOutput[0].floatValue
-            print("📊 FaceVault: Raw age estimate: \(rawAge)")
-            
-            // Collect estimates for smoothing
-            ageEstimates.append(rawAge)
+            // InsightFace — index 0 = gender, index 1 = age normalized 0-1
+            let genderProb = ageOutput[0].floatValue
+            let normalizedAge = ageOutput[2].floatValue  // ← index 2
+            let realAge = normalizedAge * 100.0
+
+            print("📊 FaceVault: Gender prob: \(genderProb) Age: \(realAge)")
+
+            // Collect for smoothing
+            ageEstimates.append(realAge)
             if ageEstimates.count > maxEstimates {
                 ageEstimates.removeFirst()
             }
-            
-            // Use C++ engine for smoothing + decision
+
             let smoothed = smoothAge(ageEstimates)
-            let result   = evaluateAge(smoothed, threshold: threshold)
-            
+            let result = evaluateAge(smoothed, threshold: threshold)
             return result
             
         } catch {
