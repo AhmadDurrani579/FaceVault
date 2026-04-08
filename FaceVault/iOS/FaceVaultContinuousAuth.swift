@@ -28,7 +28,9 @@ public class FaceVaultContinuousAuth: NSObject {
     private let embedder      = FaceVaultEmbedder()
     private let bridge        = FaceVaultMatcherBridge()
     private let preprocessor  = FaceVaultPreprocessorBridge()
-    
+    private var consecutiveGoodFrames = 0
+    private var lastVisionTime: Date = .distantPast
+
     public weak var delegate: FaceVaultContinuousAuthDelegate?
     public var onStopped: (() -> Void)?
     
@@ -101,29 +103,10 @@ public class FaceVaultContinuousAuth: NSObject {
         guard isRunning, isChecking else { return }
         guard let stored = storedEmbedding else { return }
         
-        var copyBuffer: CVPixelBuffer?
-        CVPixelBufferCreate(
-            nil,
-            CVPixelBufferGetWidth(pixelBuffer),
-            CVPixelBufferGetHeight(pixelBuffer),
-            CVPixelBufferGetPixelFormatType(pixelBuffer),
-            nil,
-            &copyBuffer
-        )
-        
-        guard let safeCopy = copyBuffer else {
+        guard let safeCopy = copyPixelBuffer(pixelBuffer) else {
             isChecking = false
             return
         }
-        
-        CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
-        CVPixelBufferLockBaseAddress(safeCopy, CVPixelBufferLockFlags(rawValue: 0))
-        if let src = CVPixelBufferGetBaseAddress(pixelBuffer),
-           let dst = CVPixelBufferGetBaseAddress(safeCopy) {
-            memcpy(dst, src, CVPixelBufferGetDataSize(pixelBuffer))
-        }
-        CVPixelBufferUnlockBaseAddress(safeCopy, CVPixelBufferLockFlags(rawValue: 0))
-        CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly)
         
         DispatchQueue.global(qos: .background).async { [weak self] in
             guard let self else { return }
@@ -132,11 +115,10 @@ public class FaceVaultContinuousAuth: NSObject {
                 DispatchQueue.main.async { self.isChecking = false }
             }
             
-            self.vision.process(pixelBuffer: safeCopy, orientation: .up, maxAngle: 0.7)
-            
+            // Don't process Vision here — camera delegate handles it
+            // Just use existing landmarks
             guard let landmarks = self.lastLandmarks else {
                 self.consecutiveLostCount += 1
-                DispatchQueue.main.async { self.isChecking = false }
                 return
             }
             
@@ -159,9 +141,6 @@ public class FaceVaultContinuousAuth: NSObject {
             guard let result = self.preprocessor.process(safeCopy, faceRect: faceRect),
                   result.success,
                   let processedBuffer = result.processedBuffer else {
-                DispatchQueue.main.async {
-                    self.delegate?.continuousAuth(self, didDetect: .faceLost)
-                }
                 return
             }
             
@@ -176,46 +155,110 @@ public class FaceVaultContinuousAuth: NSObject {
             FaceVaultLogger.log("Continuous check — score: \(String(format: "%.2f", score))")
             
             DispatchQueue.main.async {
+                guard self.lastLandmarks != nil else { return }
+                
                 if score >= self.matchThreshold {
                     self.delegate?.continuousAuth(self,
                         didDetect: .faceVerified(confidence: score))
                 } else {
-                    FaceVaultLogger.log("Continuous auth — different face detected", level: .warning)
+                    FaceVaultLogger.log("Different face detected", level: .warning)
                     self.delegate?.continuousAuth(self,
                         didDetect: .faceChanged(confidence: score))
                 }
             }
         }
     }
+
+    private func copyPixelBuffer(_ pixelBuffer: CVPixelBuffer) -> CVPixelBuffer? {
+        var copy: CVPixelBuffer?
+        let attrs = [
+            kCVPixelBufferCGImageCompatibilityKey: true,
+            kCVPixelBufferCGBitmapContextCompatibilityKey: true
+        ] as CFDictionary
+        
+        CVPixelBufferCreate(
+            kCFAllocatorDefault,
+            CVPixelBufferGetWidth(pixelBuffer),
+            CVPixelBufferGetHeight(pixelBuffer),
+            CVPixelBufferGetPixelFormatType(pixelBuffer),
+            attrs,
+            &copy
+        )
+        
+        guard let dst = copy else { return nil }
+        
+        CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
+        CVPixelBufferLockBaseAddress(dst, CVPixelBufferLockFlags(rawValue: 0))
+        
+        if let src = CVPixelBufferGetBaseAddress(pixelBuffer),
+           let dstAddr = CVPixelBufferGetBaseAddress(dst) {
+            memcpy(dstAddr, src, CVPixelBufferGetDataSize(pixelBuffer))
+        }
+        
+        CVPixelBufferUnlockBaseAddress(dst, CVPixelBufferLockFlags(rawValue: 0))
+        CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly)
+        
+        return dst
+    }
+
 }
 
 // MARK: - Camera Delegate
 extension FaceVaultContinuousAuth: FaceVaultCameraDelegate {
     public func camera(_ camera: FaceVaultCamera,
                        didOutput sampleBuffer: CMSampleBuffer) {
-        guard isRunning, isChecking else { return }
+        guard isRunning else { return }
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        
+        // Vision throttle — every 0.3 seconds
+        let now = Date()
+        guard now.timeIntervalSince(lastVisionTime) > 0.3 else { return }
+        lastVisionTime = now
+        
+        // Vision runs for blur/unblur
+        vision.process(pixelBuffer: pixelBuffer, orientation: .up, maxAngle: 0.7)
+        
+        // Identity check only when timer fires
+        guard isChecking else { return }
         checkFrame(pixelBuffer)
     }
+
 }
 
 // MARK: - Vision Delegate
 extension FaceVaultContinuousAuth: FaceVaultVisionDelegate {
-    public func vision(_ vision: FaceVaultVision, didDetect landmarks: FaceLandmarks) {
+    public func vision(_ vision: FaceVaultVision,
+                       didDetect landmarks: FaceLandmarks) {
         lastLandmarks = landmarks
+        
+        guard abs(landmarks.yaw) < 0.5 &&
+              abs(landmarks.pitch) < 0.5 &&
+              landmarks.landmarks.count > 30 else {
+            consecutiveGoodFrames = 0
+            return
+        }
+        
+        consecutiveGoodFrames += 1
+        
+        // Only unblur after 3 consecutive good frames
+        // Prevents false positives
+        guard consecutiveGoodFrames >= 3 else { return }
+        
         DispatchQueue.main.async {
-            self.delegate?.continuousAuth(self, didDetect: .faceVerified(confidence: 1.0))
+            self.delegate?.continuousAuth(self,
+                didDetect: .faceVerified(confidence: 1.0))
         }
     }
-    
+
     public func visionDidLoseFace(_ vision: FaceVaultVision) {
         lastLandmarks = nil
+        consecutiveGoodFrames = 0  // ← reset
         FaceVaultLogger.log("Continuous auth — face lost", level: .warning)
         DispatchQueue.main.async {
             self.delegate?.continuousAuth(self, didDetect: .faceLost)
         }
     }
-    
+
     public func visionDidDetectMultipleFaces(_ vision: FaceVaultVision, count: Int) {
         FaceVaultLogger.log("Continuous auth — multiple faces detected", level: .warning)
         DispatchQueue.main.async {

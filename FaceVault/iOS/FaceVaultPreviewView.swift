@@ -20,6 +20,7 @@ public class FaceVaultPreviewView: UIView {
     public let faceOvalLayer = CAShapeLayer()
     private var segmentLayers: [CAShapeLayer] = []
     private let totalSegments = 40
+    private let whiteOverlay = UIView()
 
     public override init(frame: CGRect) {
         super.init(frame: frame)
@@ -32,19 +33,20 @@ public class FaceVaultPreviewView: UIView {
     }
     
     private func setupUI() {
-        backgroundColor = .black
+        backgroundColor = .white
         
+        // ARKit camera — full screen behind
         sceneView.frame = bounds
         sceneView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         sceneView.automaticallyUpdatesLighting = false
         sceneView.rendersCameraGrain = false
         addSubview(sceneView)
         
-        // Thin oval guide
-//        faceOvalLayer.fillColor = UIColor.clear.cgColor
-//        faceOvalLayer.strokeColor = UIColor.white.withAlphaComponent(0.15).cgColor
-//        faceOvalLayer.lineWidth = 1
-//        layer.addSublayer(faceOvalLayer)
+        // White overlay — covers everything outside oval
+        whiteOverlay.backgroundColor = .white
+        whiteOverlay.frame = bounds
+        whiteOverlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        addSubview(whiteOverlay)
         
         // Blur view
         blurView.frame = bounds
@@ -63,8 +65,8 @@ public class FaceVaultPreviewView: UIView {
             warningLabel.centerYAnchor.constraint(equalTo: blurView.centerYAnchor)
         ])
         
-        // Instruction label
-        instructionLabel.textColor = .white
+        // Instruction label — dark text for white background
+        instructionLabel.textColor = .darkGray
         instructionLabel.textAlignment = .center
         instructionLabel.font = .systemFont(ofSize: 20, weight: .semibold)
         instructionLabel.numberOfLines = 0
@@ -81,17 +83,24 @@ public class FaceVaultPreviewView: UIView {
     public override func layoutSubviews() {
         super.layoutSubviews()
         sceneView.frame = bounds
+        whiteOverlay.frame = bounds
         
-//        // Oval guide — slightly inside the segments
-//        let ovalRect = CGRect(
-//            x: bounds.midX - 120,
-//            y: bounds.midY - 160,
-//            width: 240,
-//            height: 320
-//        )
-//        faceOvalLayer.path = UIBezierPath(ovalIn: ovalRect).cgPath
+        let ovalRect = CGRect(
+            x: bounds.midX - 150,
+            y: bounds.midY - 200,
+            width: 300,
+            height: 400
+        )
         
-        // Rebuild segments
+        // Cut oval hole
+        let maskLayer = CAShapeLayer()
+        let path = CGMutablePath()
+        path.addRect(bounds)
+        path.addEllipse(in: ovalRect)
+        maskLayer.path = path
+        maskLayer.fillRule = .evenOdd
+        whiteOverlay.layer.mask = maskLayer
+        
         setupProgressRing()
     }
     

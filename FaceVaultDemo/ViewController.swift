@@ -122,10 +122,11 @@ class ViewController: UIViewController {
         
         sdk.startContinuousAuth(interval: 1.0, maxDuration: 120.0) { event in
             switch event {
-            case .faceVerified:  self.blurScreen(false)
-            case .faceLost:      self.blurScreen(true)
-            case .faceChanged:   self.lockApp()
-            case .multipleFaces: self.blurScreen(true)
+                case .faceVerified:
+                    self.blurScreen(false)
+                case .faceLost:      self.blurScreen(true)
+                case .faceChanged:   self.lockApp()
+                case .multipleFaces: self.blurScreen(true)
             }
         }
     }
@@ -134,10 +135,12 @@ class ViewController: UIViewController {
     private func blurScreen(_ blur: Bool) {
         DispatchQueue.main.async {
             if blur {
+                // Show instantly
                 guard self.view.viewWithTag(999) == nil else { return }
                 let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .dark))
                 blurView.frame = self.view.bounds
                 blurView.tag = 999
+                blurView.alpha = 0
                 self.view.addSubview(blurView)
                 
                 let label = UILabel()
@@ -147,8 +150,19 @@ class ViewController: UIViewController {
                 label.font = .systemFont(ofSize: 18, weight: .semibold)
                 label.frame = blurView.bounds
                 blurView.contentView.addSubview(label)
+                
+                // Fade in quickly
+                UIView.animate(withDuration: 0.2) {
+                    blurView.alpha = 1
+                }
             } else {
-                self.view.viewWithTag(999)?.removeFromSuperview()
+                // Fade out smoothly
+                guard let blurView = self.view.viewWithTag(999) else { return }
+                UIView.animate(withDuration: 0.3) {
+                    blurView.alpha = 0
+                } completion: { _ in
+                    blurView.removeFromSuperview()
+                }
             }
         }
     }
