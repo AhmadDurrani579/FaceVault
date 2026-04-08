@@ -17,7 +17,7 @@ class ViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         setupPreview()
-        previewView.showMessage("🔐 Initializing...")
+        previewView.showMessage(" Initializing...")
         
         sdk.prepare {
             if self.sdk.isEnrolled() {
@@ -43,7 +43,7 @@ class ViewController: UIViewController {
                 if success {
                     self.startAuthentication()
                 } else {
-                    self.previewView.showMessage("❌ Enrollment failed — try again")
+                    self.previewView.showMessage(" Enrollment failed — try again")
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                         self.startEnrollment()
                     }
@@ -62,30 +62,30 @@ class ViewController: UIViewController {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                         self.sdk.estimateAge { result in
                             if let result = result {
-                                print("👤 Age: \(result.estimatedAge)")
-                                print("👤 Range: \(result.ageRange)")
-                                print("👤 IsAdult: \(result.isAdult)")
+                                print(" Age: \(result.estimatedAge)")
+                                print(" Range: \(result.ageRange)")
+                                print(" IsAdult: \(result.isAdult)")
                             } else {
-                                print("❌ Age estimation failed — no pixel buffer")
+                                print(" Age estimation failed — no pixel buffer")
                             }
                         }
                     }
 
                     
                 case .deniedNoMatch:
-                    self.previewView.showMessage("❌ Face does not match")
+                    self.previewView.showMessage(" Face does not match")
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                         self.startAuthentication()
                     }
                     
                 case .deniedLiveness:
-                    self.previewView.showMessage("❌ Liveness check failed")
+                    self.previewView.showMessage(" Liveness check failed")
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                         self.startAuthentication()
                     }
                     
                 case .deniedMultipleFaces:
-                    self.previewView.showMessage("❌ Multiple faces detected")
+                    self.previewView.showMessage(" Multiple faces detected")
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                         self.startAuthentication()
                     }
@@ -96,7 +96,7 @@ class ViewController: UIViewController {
                     self.startAuthentication()
                     
                 case .deniedTampered:
-                    self.previewView.showMessage("❌ Security violation detected")
+                    self.previewView.showMessage(" Security violation detected")
                 }
             }
         }
@@ -104,7 +104,7 @@ class ViewController: UIViewController {
     
     // MARK: - Post Authentication
     private func onAuthenticated(confidence: Float) {
-        previewView.showMessage("✅ Authenticated!")
+        previewView.showMessage(" Authenticated!")
         
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
             self.previewView.isHidden = true
@@ -157,7 +157,7 @@ class ViewController: UIViewController {
         sdk.stopContinuousAuth()
         blurScreen(false)
         previewView.isHidden = false
-        previewView.showMessage("🔒 Session expired")
+        previewView.showMessage(" Session expired")
     }
     
     // MARK: - Logout

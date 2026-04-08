@@ -99,7 +99,7 @@ public class FaceVaultSegmentorML{
             return buildMask(from: segOutput, size: 512)
             
         } catch {
-            print("❌ FaceVault: Segmentation inference failed — \(error)")
+            print("FaceVault: Segmentation inference failed — \(error)")
             return nil
         }
     }

@@ -81,8 +81,8 @@ private:
     float maxYaw     = 0.4f;
     float maxPitch   = 0.4f;
     float maxRoll    = 0.4f;
-    float minIPD = 60.0f;   // too far if IPD < 60px
-    float maxIPD = 800.0f;  // too close if IPD > 600px
+    float minIPD = 100.0f;   // too far if IPD < 60px
+    float maxIPD = 600.0f;  // too close if IPD > 600px
 
 };
 
