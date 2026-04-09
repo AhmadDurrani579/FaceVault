@@ -30,6 +30,10 @@ public protocol FaceVaultLivenessDelegate: AnyObject {
     func liveness(_ liveness: FaceVaultLiveness, requiresChallenge challenge: LivenessChallenge)
     func liveness(_ liveness: FaceVaultLiveness, didCaptureFrame pixelBuffer: CVPixelBuffer)
     func liveness(_ liveness: FaceVaultLiveness, didUpdateHeadPose yaw: Float, pitch: Float)
+    func liveness(_ liveness: FaceVaultLiveness,
+                  didDetectFaceAnchor anchor: ARFaceAnchor)
+    func livenessDidLoseFace(_ liveness: FaceVaultLiveness)
+
 }
 
 // MARK: - FaceVaultLiveness
@@ -49,10 +53,14 @@ public class FaceVaultLiveness: NSObject {
     private let turnThreshold: Float         = 0.3
     private let openMouthThreshold: Float    = 0.5
     
+    private var faceLostTimer: Timer?
+    private var faceDetected = false
+
     // Challenge sequence
     private var challengeQueue: [LivenessChallenge] = []
     private var completedChallenges: [LivenessChallenge] = []
-    
+    private var currentFaceAnchor: ARFaceAnchor?
+
     public private(set) var isRunning = false
     
     // MARK: - Init
@@ -179,30 +187,67 @@ public class FaceVaultLiveness: NSObject {
             startNextChallenge()
         }
     }
+    
+    public var latestFaceAnchor: ARFaceAnchor? {
+        return currentFaceAnchor
+    }
+
 }
 
 // MARK: - ARSession Delegate
 extension FaceVaultLiveness: ARSessionDelegate {
     
-    public func session(_ session: ARSession, didUpdate anchors: [ARAnchor]) {
-        guard let faceAnchor = anchors.compactMap({ $0 as? ARFaceAnchor }).first else { return }
+    public func session(_ session: ARSession,
+                        didUpdate anchors: [ARAnchor]) {
+        guard let faceAnchor = anchors
+            .compactMap({ $0 as? ARFaceAnchor })
+            .first else {
+            currentFaceAnchor = nil
+            // Start timer — only fire lost after 1 second
+            guard faceDetected else { return }
+            
+            if faceLostTimer == nil {
+                faceLostTimer = Timer.scheduledTimer(
+                    withTimeInterval: 1.0,
+                    repeats: false
+                ) { [weak self] _ in
+                    guard let self else { return }
+                    self.faceDetected = false
+                    self.faceLostTimer = nil
+                    DispatchQueue.main.async {
+                        self.delegate?.livenessDidLoseFace(self)
+                    }
+                }
+            }
+            return
+        }
         
+        // Face found — cancel lost timer
+        faceLostTimer?.invalidate()
+        faceLostTimer = nil
+        faceDetected = true
+        currentFaceAnchor = faceAnchor
+        // Pass anchor to delegate
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.delegate?.liveness(self, didDetectFaceAnchor: faceAnchor)
+        }
+        
+        // Existing code
         let blendShapes = faceAnchor.blendShapes
-        let frame = session.currentFrame
-        
-        // Get yaw and pitch from ARKit transform
         let transform = faceAnchor.transform
         let yaw   = atan2(transform.columns.0.z, transform.columns.2.z)
         let pitch = asin(-transform.columns.1.z)
         
-        // Pass head pose to delegate
         DispatchQueue.main.async { [weak self] in
-            self?.delegate?.liveness(self!, didUpdateHeadPose: yaw, pitch: pitch)
+            self?.delegate?.liveness(self!,
+                                      didUpdateHeadPose: yaw,
+                                      pitch: pitch)
         }
         
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
-            if let pixelBuffer = frame?.capturedImage {
+            if let pixelBuffer = session.currentFrame?.capturedImage {
                 self.delegate?.liveness(self, didCaptureFrame: pixelBuffer)
             }
         }
@@ -212,7 +257,6 @@ extension FaceVaultLiveness: ARSessionDelegate {
         }
     }
 
-    
     public func session(_ session: ARSession, didFailWithError error: Error) {
         delegate?.liveness(self, didUpdate: .failed(reason: error.localizedDescription))
     }
@@ -223,4 +267,12 @@ extension FaceVaultLiveness: ARSessionDelegate {
 //        delegate?.liveness(self, didCaptureFrame: pixelBuffer)
     }
 
+    // Add to FaceVaultLivenessDelegate
+    func liveness(_ liveness: FaceVaultLiveness,
+                  didDetectFaceAnchor anchor: ARFaceAnchor) {
+        
+    }
+    func livenessDidLoseFace(_ liveness: FaceVaultLiveness) {
+        
+    }
 }

@@ -33,8 +33,8 @@ public class FaceVaultSDK: NSObject {
     private let storage   = FaceVaultStorage()
     private let segmentorML = FaceVaultSegmentorML()
     private let ageEstimator = FaceVaultAgeEngine()
-
     private lazy var continuousAuth = FaceVaultContinuousAuth()
+    private var lastIRLandmarks: FaceVaultIRLandmarks?
 
     // MARK: - State
     private var onResult: ((FaceVaultResult) -> Void)?
@@ -73,6 +73,7 @@ public class FaceVaultSDK: NSObject {
         super.init()
         vision.delegate   = self
         liveness.delegate = self
+        storage.clearOnFreshInstall()
         FaceVaultLogger.log("FaceVault SDK initialized")
 
 //        warmUp()
@@ -135,9 +136,12 @@ public class FaceVaultSDK: NSObject {
         completion(false)
         return
         #endif
+        
         FaceVaultLogger.log("Enrollment started")
 
+        print("🔵 enroll() called — isEnrolling = \(isEnrolling)")
         isEnrolling = true
+        print("🔵 isEnrolling set to true")
         enrollCompleted = false
         enrollCompletion = completion
         currentEmbedding = nil
@@ -510,7 +514,8 @@ extension FaceVaultSDK: FaceVaultLivenessDelegate {
         previewView?.showChallenge(challenge)
     }
     
-    public func liveness(_ liveness: FaceVaultLiveness, didCaptureFrame pixelBuffer: CVPixelBuffer) {
+    public func liveness(_ liveness: FaceVaultLiveness,
+                         didCaptureFrame pixelBuffer: CVPixelBuffer) {
         let now = Date()
         guard now.timeIntervalSince(lastEmbeddingTime) > 0.5 else { return }
         lastEmbeddingTime = now
@@ -518,36 +523,65 @@ extension FaceVaultSDK: FaceVaultLivenessDelegate {
         let runBiSeNet = now.timeIntervalSince(lastSegmentTime) > 2.0
         if runBiSeNet { lastSegmentTime = now }
         self.lastPixelBuffer = pixelBuffer
+        
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             
-            self.vision.process(pixelBuffer: pixelBuffer)
+            guard let anchor = self.liveness.latestFaceAnchor else {
+                print("❌ latestFaceAnchor is nil")
+                return
+            }
+            print("✅ Got face anchor — \(anchor.geometry.vertices.count) vertices")
             
-            guard let landmarks = self.lastLandmarks else { return }
+            let transform = anchor.transform
+            let yaw   = atan2(transform.columns.0.z, transform.columns.2.z)
+            let pitch = asin(-transform.columns.1.z)
+            let roll  = atan2(transform.columns.1.x, transform.columns.1.y)
             
+            let vertices = anchor.geometry.vertices
+            let leftEyeVertex  = vertices.count > 468 ? vertices[468] : SIMD3<Float>(0.3, 0.5, 0)
+            let rightEyeVertex = vertices.count > 473 ? vertices[473] : SIMD3<Float>(0.7, 0.5, 0)
+            
+            let leftEyeX  = (leftEyeVertex.x + 0.1) / 0.2
+            let leftEyeY  = (leftEyeVertex.y + 0.1) / 0.2
+            let rightEyeX = (rightEyeVertex.x + 0.1) / 0.2
+            let rightEyeY = (rightEyeVertex.y + 0.1) / 0.2
+            
+            // Build faceRect
             let faceRect = FaceVaultFaceRect()
-            faceRect.x             = Float(landmarks.boundingBox.origin.x)
-            faceRect.y             = Float(landmarks.boundingBox.origin.y)
-            faceRect.width         = Float(landmarks.boundingBox.size.width)
-            faceRect.height        = Float(landmarks.boundingBox.size.height)
-            faceRect.yaw           = landmarks.yaw
-            faceRect.pitch         = landmarks.pitch
-            faceRect.roll          = landmarks.roll
-            faceRect.landmarkCount = Int32(landmarks.landmarks.count)
-            faceRect.leftEyeX      = Float(landmarks.leftEye.x)
-            faceRect.leftEyeY      = Float(landmarks.leftEye.y)
-            faceRect.rightEyeX     = Float(landmarks.rightEye.x)
-            faceRect.rightEyeY     = Float(landmarks.rightEye.y)
+            faceRect.x             = 0.2
+            faceRect.y             = 0.2
+            faceRect.width         = 0.6
+            faceRect.height        = 0.6
+            faceRect.yaw           = yaw
+            faceRect.pitch         = pitch
+            faceRect.roll          = roll
+            faceRect.landmarkCount = Int32(vertices.count)
+            faceRect.leftEyeX      = leftEyeX
+            faceRect.leftEyeY      = leftEyeY
+            faceRect.rightEyeX     = rightEyeX
+            faceRect.rightEyeY     = rightEyeY
             
-            guard let result = self.preprocessor.process(pixelBuffer, faceRect: faceRect),
-                  result.success else { return }
+            // Now process
+            guard let result = self.preprocessor.process(pixelBuffer,
+                                                          faceRect: faceRect) else {
+                print("❌ Preprocessor returned nil")
+                return
+            }
+            
+            print("📊 Preprocessor — success:\(result.success) tooFar:\(result.tooFar) tooClose:\(result.tooClose) quality:\(result.qualityScore)")
+            
+            guard result.success else {
+                print("❌ Preprocessor failed — \(result.error ?? "unknown")")
+                return
+            }
             
             if result.tooFar {
-                DispatchQueue.main.async { self.previewView?.showMessage("📏 Move closer") }
+                DispatchQueue.main.async { self.previewView?.showMessage("Move closer") }
                 return
             }
             if result.tooClose {
-                DispatchQueue.main.async { self.previewView?.showMessage("📏 Move further away") }
+                DispatchQueue.main.async { self.previewView?.showMessage("Move further away") }
                 return
             }
             
@@ -558,27 +592,35 @@ extension FaceVaultSDK: FaceVaultLivenessDelegate {
                 bufferToUse = pixelBuffer
             }
             
-            // BiSeNet — only every 2 seconds
             let finalBuffer: CVPixelBuffer
-            if runBiSeNet, let _ = self.segmentorML.generateMask(from: bufferToUse) {
+            if runBiSeNet,
+               let _ = self.segmentorML.generateMask(from: bufferToUse) {
                 finalBuffer = bufferToUse
             } else {
                 finalBuffer = bufferToUse
             }
             
-            guard let embedding = self.embedder.generateEmbedding(from: finalBuffer) else { return }
+            guard let embedding = self.embedder.generateEmbedding(from: finalBuffer) else {
+                print("❌ Embedding failed")
+                return
+            }
+            
+            print("✅ Embedding generated — IR pipeline")
+            print("🔵 isEnrolling = \(self.isEnrolling)")
+
             if self.isEnrolling {
-                // Stop collecting after max frames
                 guard self.enrollEmbeddings.count < self.maxEnrollFrames else { return }
                 self.enrollEmbeddings.append(embedding)
-                FaceVaultLogger.log("Enroll frame \(self.enrollEmbeddings.count)/\(self.maxEnrollFrames)")
+                print("✅ Enroll frame \(self.enrollEmbeddings.count)/\(self.maxEnrollFrames)")
             } else {
                 guard self.liveEmbeddings.count < self.maxLiveFrames else { return }
                 self.liveEmbeddings.append(embedding)
                 self.currentEmbedding = embedding
+                print("✅ Live frame \(self.liveEmbeddings.count)/\(self.maxLiveFrames)")
             }
         }
     }
+
     
     public static func enableLogging() {
         FaceVaultLogger.isEnabled = true
@@ -648,6 +690,50 @@ extension FaceVaultSDK: FaceVaultLivenessDelegate {
                          didUpdateHeadPose yaw: Float, pitch: Float) {
         if isEnrolling {
             updateEnrollProgress(yaw: yaw, pitch: pitch)
+        }
+    }
+    
+    // Add to FaceVaultLivenessDelegate conformance
+    public func liveness(_ liveness: FaceVaultLiveness,
+                         didDetectFaceAnchor anchor: ARFaceAnchor) {
+        
+        singleFaceDetected = true
+        
+        // Get viewport size
+        let viewportSize = previewView?.bounds.size ?? CGSize(width: 1440, height: 1080)
+        
+        // Create IR landmarks
+        let irLandmarks = FaceVaultIRLandmarks(
+            anchor: anchor,
+            viewportSize: viewportSize
+        )
+        
+        landmarkCount = irLandmarks.landmarkCount
+        
+        // Build face rect from IR data
+        lastIRLandmarks = irLandmarks
+        
+        previewView?.clearLandmarks()
+        previewView?.hideMultipleFacesWarning()
+        
+        if isEnrolling {
+            updateEnrollProgress(
+                yaw: irLandmarks.yaw,
+                pitch: irLandmarks.pitch
+            )
+        }
+    }
+
+    public func livenessDidLoseFace(_ liveness: FaceVaultLiveness) {
+        singleFaceDetected = false
+        landmarkCount = 0
+        lastIRLandmarks = nil
+        previewView?.clearLandmarks()
+        
+        if isEnrolling {
+            previewView?.showMessage("Please show your face")
+        } else {
+            previewView?.showAngleWarning()
         }
     }
 }

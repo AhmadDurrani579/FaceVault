@@ -170,6 +170,14 @@ public class FaceVaultStorage {
         return success
     }
     
+    public func clearOnFreshInstall() {
+        let key = "FaceVault_FirstLaunch"
+        if UserDefaults.standard.bool(forKey: key) == false {
+            _ = deleteEmbedding()
+            UserDefaults.standard.set(true, forKey: key)
+        }
+    }
+
     private func loadFromKeychain() -> Data? {
         let query: [String: Any] = [
             kSecClass as String:            kSecClassGenericPassword,
