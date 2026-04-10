@@ -12,5 +12,6 @@
 #import <FaceVault/FaceVaultMatcherBridge.h>
 #import <FaceVault/FaceVaultDecisionBridge.h>
 #import <FaceVault/FaceVaultPreprocessorBridge.h>
+#import <FaceVault/FaceVaultGeometricBridge.h>
 
 #endif /* FaceVault_h */

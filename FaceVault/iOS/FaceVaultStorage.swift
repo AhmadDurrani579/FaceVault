@@ -31,7 +31,8 @@ public class FaceVaultStorage {
             let encrypted = try encrypt(data: data, key: key)
             
             // Save to Keychain
-            return saveToKeychain(data: encrypted)
+            return saveToKeychain(data: encrypted, account: embeddingKey)
+
         } catch {
             print("❌ FaceVault: Encryption failed — \(error)")
             return false
@@ -41,7 +42,7 @@ public class FaceVaultStorage {
     // MARK: - Load Embedding
     public func loadEmbedding() -> [Float]? {
         guard let key = getOrCreateKey(),
-              let encrypted = loadFromKeychain() else {
+              let encrypted = loadFromKeychain(account: embeddingKey) else {
             print("❌ FaceVault: Could not load embedding")
             return nil
         }
@@ -57,17 +58,13 @@ public class FaceVaultStorage {
     
     // MARK: - Delete Embedding
     public func deleteEmbedding() -> Bool {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrAccount as String: embeddingKey
-        ]
-        let status = SecItemDelete(query as CFDictionary)
-        return status == errSecSuccess
+        return deleteFromKeychain(account: embeddingKey)
     }
     
     public func hasEnrolledFace() -> Bool {
-        return loadFromKeychain() != nil
+        return loadFromKeychain(account: embeddingKey) != nil
     }
+
     
     // MARK: - Secure Enclave Key
     private func getOrCreateKey() -> SecKey? {
@@ -154,19 +151,19 @@ public class FaceVaultStorage {
     }
     
     // MARK: - Keychain
-    private func saveToKeychain(data: Data) -> Bool {
-        deleteEmbedding()
+    private func saveToKeychain(data: Data, account: String) -> Bool {
+        _ = deleteFromKeychain(account: account)
         
         let query: [String: Any] = [
             kSecClass as String:            kSecClassGenericPassword,
-            kSecAttrAccount as String:      embeddingKey,
+            kSecAttrAccount as String:      account,
             kSecAttrAccessible as String:   kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
             kSecValueData as String:        data
         ]
         
         let status = SecItemAdd(query as CFDictionary, nil)
         let success = status == errSecSuccess
-        print(success ? "✅ FaceVault: Embedding saved to Keychain" : "❌ FaceVault: Keychain save failed \(status)")
+        print(success ? "✅ FaceVault: Saved to Keychain [\(account)]" : "❌ FaceVault: Keychain save failed \(status)")
         return success
     }
     
@@ -177,11 +174,67 @@ public class FaceVaultStorage {
             UserDefaults.standard.set(true, forKey: key)
         }
     }
+    
+    private func deleteFromKeychain(account: String) -> Bool {
+        let query: [String: Any] = [
+            kSecClass as String:        kSecClassGenericPassword,
+            kSecAttrAccount as String:  account
+        ]
+        let status = SecItemDelete(query as CFDictionary)
+        return status == errSecSuccess
+    }
 
-    private func loadFromKeychain() -> Data? {
+    public func deletePointCloud() -> Bool {
+        return deleteFromKeychain(account: "com.facevault.pointcloud")
+    }
+
+    // MARK: - Save Point Cloud
+    public func savePointCloud(_ points: [SIMD3<Float>]) -> Bool {
+        guard let key = getOrCreateKey() else { return false }
+        
+        do {
+            let data = pointsToData(points)
+            let encrypted = try encrypt(data: data, key: key)
+            return saveToKeychain(data: encrypted, account: "com.facevault.pointcloud")
+        } catch {
+            print("❌ FaceVault: Point cloud encryption failed — \(error)")
+            return false
+        }
+    }
+
+    // MARK: - Load Point Cloud
+    public func loadPointCloud() -> [SIMD3<Float>]? {
+        guard let key = getOrCreateKey(),
+              let encrypted = loadFromKeychain(account: "com.facevault.pointcloud") else {
+            return nil
+        }
+        
+        do {
+            let data = try decrypt(data: encrypted, key: key)
+            return dataToPoints(data)
+        } catch {
+            print("❌ FaceVault: Point cloud decryption failed — \(error)")
+            return nil
+        }
+    }
+
+    private func pointsToData(_ points: [SIMD3<Float>]) -> Data {
+        var copy = points
+        return Data(bytes: &copy, count: copy.count * MemoryLayout<SIMD3<Float>>.stride)
+    }
+
+    private func dataToPoints(_ data: Data) -> [SIMD3<Float>] {
+        let count = data.count / MemoryLayout<SIMD3<Float>>.stride
+        return data.withUnsafeBytes { ptr in
+            Array(ptr.bindMemory(to: SIMD3<Float>.self).prefix(count))
+        }
+    }
+
+
+    private func loadFromKeychain(account: String) -> Data? {
         let query: [String: Any] = [
             kSecClass as String:            kSecClassGenericPassword,
-            kSecAttrAccount as String:      embeddingKey,
+            kSecAttrAccount as String:      account,
             kSecReturnData as String:       true,
             kSecMatchLimit as String:       kSecMatchLimitOne
         ]
@@ -191,6 +244,7 @@ public class FaceVaultStorage {
         guard status == errSecSuccess else { return nil }
         return item as? Data
     }
+
     
     // MARK: - Float Conversion
     private func floatsToData(_ floats: [Float]) -> Data {

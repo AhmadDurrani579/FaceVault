@@ -82,6 +82,7 @@
 				Models/FaceVaultSegmentor.mlpackage,
 			);
 			publicHeaders = (
+				Core/FaceVaultGeometricBridge.h,
 				Core/FaceVaultPreprocessorBridge.h,
 				FaceVault.h,
 				iOS/FaceVaultDecisionBridge.h,

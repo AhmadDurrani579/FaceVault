@@ -33,6 +33,8 @@ public protocol FaceVaultLivenessDelegate: AnyObject {
     func liveness(_ liveness: FaceVaultLiveness,
                   didDetectFaceAnchor anchor: ARFaceAnchor)
     func livenessDidLoseFace(_ liveness: FaceVaultLiveness)
+    func liveness(_ liveness: FaceVaultLiveness,
+                  didCaptureGeometry vertices: [SIMD3<Float>])
 
 }
 
@@ -60,6 +62,8 @@ public class FaceVaultLiveness: NSObject {
     private var challengeQueue: [LivenessChallenge] = []
     private var completedChallenges: [LivenessChallenge] = []
     private var currentFaceAnchor: ARFaceAnchor?
+    
+    private var latestDepthData: AVDepthData?
 
     public private(set) var isRunning = false
     
@@ -89,6 +93,9 @@ public class FaceVaultLiveness: NSObject {
         session?.delegateQueue = DispatchQueue(label: "com.facevault.arkit", qos: .userInteractive)
         let config = ARFaceTrackingConfiguration()
         config.isLightEstimationEnabled = false
+        if ARFaceTrackingConfiguration.supportsFrameSemantics(.sceneDepth) {
+            config.frameSemantics.insert(.sceneDepth)
+        }
         session?.run(config)
         
         isRunning = true
@@ -191,6 +198,40 @@ public class FaceVaultLiveness: NSObject {
     public var latestFaceAnchor: ARFaceAnchor? {
         return currentFaceAnchor
     }
+    
+    public var capturedDepthData: AVDepthData? {
+        return latestDepthData
+    }
+    
+    public func extractDepthValues() -> [Float] {
+        guard let depthData = latestDepthData else {
+            print("⚠️ extractDepthValues — latestDepthData is nil")
+            return []
+        }
+        print("✅ extractDepthValues — got depth data")
+        let depthMap = depthData.converting(
+            toDepthDataType: kCVPixelFormatType_DepthFloat32
+        ).depthDataMap
+        
+        CVPixelBufferLockBaseAddress(depthMap, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(depthMap, .readOnly) }
+        
+        guard let baseAddress = CVPixelBufferGetBaseAddress(depthMap) else { return [] }
+        
+        let width  = CVPixelBufferGetWidth(depthMap)
+        let height = CVPixelBufferGetHeight(depthMap)
+        let buffer = baseAddress.bindMemory(to: Float.self, capacity: width * height)
+        
+        return Array(UnsafeBufferPointer(start: buffer, count: width * height))
+    }
+    
+    public var currentARFrame: ARFrame? {
+        return session?.currentFrame
+    }
+
+//    private var arSession: ARSession? {
+//        return sceneView?.session
+//    }
 
 }
 
@@ -231,6 +272,10 @@ extension FaceVaultLiveness: ARSessionDelegate {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.delegate?.liveness(self, didDetectFaceAnchor: faceAnchor)
+            
+            let vertices = faceAnchor.geometry.vertices
+            let points = (0..<vertices.count).map { vertices[$0] }
+            self.delegate?.liveness(self, didCaptureGeometry: points)
         }
         
         // Existing code
@@ -250,8 +295,13 @@ extension FaceVaultLiveness: ARSessionDelegate {
             if let pixelBuffer = session.currentFrame?.capturedImage {
                 self.delegate?.liveness(self, didCaptureFrame: pixelBuffer)
             }
+            
+            if let depth = session.currentFrame?.capturedDepthData {
+                self.latestDepthData = depth
+            }
         }
         
+
         DispatchQueue.main.async { [weak self] in
             self?.evaluate(blendShapes: blendShapes, headYaw: yaw)
         }

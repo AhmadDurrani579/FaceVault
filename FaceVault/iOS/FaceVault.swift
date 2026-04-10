@@ -136,9 +136,10 @@ public class FaceVaultSDK: NSObject {
         completion(false)
         return
         #endif
-        
-        FaceVaultLogger.log("Enrollment started")
+        previewView?.showEnrollmentUI()
 
+        FaceVaultLogger.log("Enrollment started")
+        
         print("🔵 enroll() called — isEnrolling = \(isEnrolling)")
         isEnrolling = true
         print("🔵 isEnrolling set to true")
@@ -237,6 +238,12 @@ public class FaceVaultSDK: NSObject {
             Thread.sleep(forTimeInterval: 0.5)
             
             let saved = self.storage.saveEmbedding(avgEmbedding)
+            if let anchor = self.liveness.latestFaceAnchor {
+                let vertices = anchor.geometry.vertices
+                let points = (0..<vertices.count).map { vertices[$0] }
+                _ = self.storage.savePointCloud(points)
+            }
+
             self.storedEmbedding = avgEmbedding
             FaceVaultLogger.log(saved ? "Enrollment complete — \(self.enrollEmbeddings.count) frames averaged" : "Enrollment failed — could not save embedding", level: saved ? .info : .error)
 
@@ -270,6 +277,7 @@ public class FaceVaultSDK: NSObject {
         return
         #endif
         FaceVaultLogger.log("Authentication started")
+        previewView?.showAuthenticationUI()
 
         self.stop()
         
@@ -337,11 +345,78 @@ public class FaceVaultSDK: NSObject {
         }
     }
     
+    private func projectVertices(_ anchor: ARFaceAnchor) -> [CGPoint] {
+        guard let frame = liveness.currentARFrame,
+              let previewView = previewView else { return [] }
+        
+        let viewportSize = previewView.bounds.size
+        let camera = frame.camera
+        let vertices = anchor.geometry.vertices
+        var points: [CGPoint] = []
+        for i in stride(from: 0, to: vertices.count, by: 8) {
+            let vertex = vertices[i]
+            let worldPos = anchor.transform * SIMD4<Float>(
+                vertex.x, vertex.y, vertex.z, 1
+            )
+            let projected = camera.projectPoint(
+                SIMD3<Float>(worldPos.x, worldPos.y, worldPos.z),
+                orientation: .portrait,
+                viewportSize: viewportSize
+            )
+            if projected.x > 0 && projected.x < CGFloat(viewportSize.width) &&
+               projected.y > 0 && projected.y < CGFloat(viewportSize.height) {
+                points.append(CGPoint(x: CGFloat(projected.x),
+                                      y: CGFloat(projected.y)))
+            }
+        }
+        return points
+    }
+    
+    
     // MARK: - Decision
     private func makeDecision() {
-        guard let stored = storedEmbedding else {
+        guard let enrolledMesh = storage.loadPointCloud() else {
+            print("❌ makeDecision — no enrolled mesh")
             DispatchQueue.main.async { [weak self] in
                 self?.onResult?(.requiresRetry)
+            }
+            return
+        }
+        print("✅ makeDecision — enrolled mesh loaded: \(enrolledMesh.count) points")
+
+        guard let anchor = liveness.latestFaceAnchor else {
+            print("❌ makeDecision — no face anchor")
+            DispatchQueue.main.async { [weak self] in
+                self?.onResult?(.requiresRetry)
+            }
+            return
+        }
+        print("✅ makeDecision — face anchor ok")
+                let vertices = anchor.geometry.vertices
+        let liveMesh = (0..<vertices.count).map { vertices[$0] }
+        let depthValues = liveness.extractDepthValues()
+        
+        guard let stored = storedEmbedding,
+              let current = currentEmbedding else {
+            DispatchQueue.main.async { [weak self] in
+                self?.onResult?(.requiresRetry)
+            }
+            return
+        }
+        
+        let liveEmbedding = liveEmbeddings.isEmpty ? current : averageEmbeddings(liveEmbeddings)
+        let geometricPassed = performGeometricAuth(
+            enrolledMesh: enrolledMesh,
+            liveMesh: liveMesh,
+            depthValues: depthValues,
+            enrolledEmbedding: stored,
+            liveEmbedding: liveEmbedding
+        )
+        print("🔷 geometricPassed: \(geometricPassed)")
+
+        guard geometricPassed else {
+            DispatchQueue.main.async { [weak self] in
+                self?.onResult?(.deniedNoMatch)
                 self?.stop()
             }
             return
@@ -412,6 +487,56 @@ public class FaceVaultSDK: NSObject {
             self?.onResult?(faceVaultResult)
         }
     }
+    
+    private func performGeometricAuth(
+        enrolledMesh: [SIMD3<Float>],
+        liveMesh: [SIMD3<Float>],
+        depthValues: [Float],
+        enrolledEmbedding: [Float],
+        liveEmbedding: [Float]
+    ) -> Bool {
+        
+        print("🔷 enrolledEmbedding count: \(enrolledEmbedding.count) first: \(enrolledEmbedding.first ?? 0)")
+        print("🔷 liveEmbedding count: \(liveEmbedding.count) first: \(liveEmbedding.first ?? 0)")
+
+        // Convert SIMD3<Float> to NSValue array
+        let enrolledValues = enrolledMesh.map { point -> NSValue in
+            var p = point
+            return NSValue(bytes: &p, objCType: "{simd_float3=fff}")
+        }
+
+        let liveValues = liveMesh.map { point -> NSValue in
+            var p = point
+            return NSValue(bytes: &p, objCType: "{simd_float3=fff}")
+        }
+
+        // Convert Float arrays to NSNumber
+        let depthNumbers     = depthValues.map { NSNumber(value: $0) }
+        let enrolledNumbers  = enrolledEmbedding.map { NSNumber(value: $0) }
+        let liveNumbers      = liveEmbedding.map { NSNumber(value: $0) }
+
+        // Call bridge
+        let bridge = FaceVaultGeometricBridge()
+        var rejectReason: NSString?
+
+        let result = bridge.authenticate(
+            withEnrolledMesh: enrolledValues,
+            liveMesh: liveValues,
+            depthValues: depthNumbers,
+            enrolledEmbedding: enrolledNumbers,
+            liveEmbedding: liveNumbers,
+            rejectReason: &rejectReason
+        )
+
+        if let reason = rejectReason {
+            print("❌ FaceVault: Rejected — \(reason)")
+        } else {
+            print("✅ FaceVault: Authenticated")
+        }
+
+        return result
+    }
+
 }
 
 // MARK: - Vision Delegate
@@ -461,6 +586,10 @@ extension FaceVaultSDK: FaceVaultVisionDelegate {
 
 // MARK: - Liveness Delegate
 extension FaceVaultSDK: FaceVaultLivenessDelegate {
+    public func liveness(_ liveness: FaceVaultLiveness, didCaptureGeometry vertices: [SIMD3<Float>]) {
+        
+    }
+    
     
     public func liveness(_ liveness: FaceVaultLiveness, didUpdate result: LivenessResult) {
             switch result {
@@ -490,7 +619,17 @@ extension FaceVaultSDK: FaceVaultLivenessDelegate {
                             self.enrollCompletion?(saved)
                         }
                     } else {
-                        self.makeDecision()
+                        let depthValues = liveness.extractDepthValues()
+                        print("🔷 makeDecision — depth values: \(depthValues.count)")
+
+                        guard !depthValues.isEmpty else {
+                            print("⚠️ FaceVault: No depth data yet — retrying")
+                            return
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                            self?.makeDecision()
+                        }
+
                     }
                 }
             
@@ -699,18 +838,14 @@ extension FaceVaultSDK: FaceVaultLivenessDelegate {
         
         singleFaceDetected = true
         
-        // Get viewport size
         let viewportSize = previewView?.bounds.size ?? CGSize(width: 1440, height: 1080)
         
-        // Create IR landmarks
         let irLandmarks = FaceVaultIRLandmarks(
             anchor: anchor,
             viewportSize: viewportSize
         )
         
         landmarkCount = irLandmarks.landmarkCount
-        
-        // Build face rect from IR data
         lastIRLandmarks = irLandmarks
         
         previewView?.clearLandmarks()
@@ -721,6 +856,10 @@ extension FaceVaultSDK: FaceVaultLivenessDelegate {
                 yaw: irLandmarks.yaw,
                 pitch: irLandmarks.pitch
             )
+        } else {
+            // Show 3D mesh during authentication
+            let points = projectVertices(anchor)
+            previewView?.updateMesh(points: points)
         }
     }
 
@@ -728,7 +867,7 @@ extension FaceVaultSDK: FaceVaultLivenessDelegate {
         singleFaceDetected = false
         landmarkCount = 0
         lastIRLandmarks = nil
-        previewView?.clearLandmarks()
+        previewView?.clearMesh()
         
         if isEnrolling {
             previewView?.showMessage("Please show your face")
@@ -736,6 +875,7 @@ extension FaceVaultSDK: FaceVaultLivenessDelegate {
             previewView?.showAngleWarning()
         }
     }
+
 }
 
 extension FaceVaultSDK: FaceVaultCameraDelegate {
