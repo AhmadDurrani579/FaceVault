@@ -594,6 +594,22 @@ extension FaceVaultSDK: FaceVaultLivenessDelegate {
     public func liveness(_ liveness: FaceVaultLiveness, didUpdate result: LivenessResult) {
             switch result {
             case .passed:
+                
+                if let v4Result = self.liveness.evaluateBiologicalLiveness() {
+                    let isLive = v4Result["isLive"] as? Bool ?? false
+                    let bpm = v4Result["heartRateBPM"] as? Float ?? 0
+
+                    FaceVaultLogger.log("Biological liveness — isLive:\(isLive) BPM:\(bpm)")
+
+                    if !isLive {
+                        DispatchQueue.main.async {
+                            self.onResult?(.deniedLiveness)
+                            self.stop()
+                        }
+                        return
+                    }
+                }
+
                 challengePassed = true
                 livenessScore = 1.0
                 
@@ -667,10 +683,10 @@ extension FaceVaultSDK: FaceVaultLivenessDelegate {
             guard let self else { return }
             
             guard let anchor = self.liveness.latestFaceAnchor else {
-                print("❌ latestFaceAnchor is nil")
+//                print("❌ latestFaceAnchor is nil")
                 return
             }
-            print("✅ Got face anchor — \(anchor.geometry.vertices.count) vertices")
+//            print("✅ Got face anchor — \(anchor.geometry.vertices.count) vertices")
             
             let transform = anchor.transform
             let yaw   = atan2(transform.columns.0.z, transform.columns.2.z)
@@ -704,14 +720,14 @@ extension FaceVaultSDK: FaceVaultLivenessDelegate {
             // Now process
             guard let result = self.preprocessor.process(pixelBuffer,
                                                           faceRect: faceRect) else {
-                print("❌ Preprocessor returned nil")
+//                print("❌ Preprocessor returned nil")
                 return
             }
             
-            print("📊 Preprocessor — success:\(result.success) tooFar:\(result.tooFar) tooClose:\(result.tooClose) quality:\(result.qualityScore)")
+//            print("📊 Preprocessor — success:\(result.success) tooFar:\(result.tooFar) tooClose:\(result.tooClose) quality:\(result.qualityScore)")
             
             guard result.success else {
-                print("❌ Preprocessor failed — \(result.error ?? "unknown")")
+//                print("❌ Preprocessor failed — \(result.error ?? "unknown")")
                 return
             }
             
@@ -744,18 +760,18 @@ extension FaceVaultSDK: FaceVaultLivenessDelegate {
                 return
             }
             
-            print("✅ Embedding generated — IR pipeline")
-            print("🔵 isEnrolling = \(self.isEnrolling)")
+//            print("✅ Embedding generated — IR pipeline")
+//            print("🔵 isEnrolling = \(self.isEnrolling)")
 
             if self.isEnrolling {
                 guard self.enrollEmbeddings.count < self.maxEnrollFrames else { return }
                 self.enrollEmbeddings.append(embedding)
-                print("✅ Enroll frame \(self.enrollEmbeddings.count)/\(self.maxEnrollFrames)")
+//                print("✅ Enroll frame \(self.enrollEmbeddings.count)/\(self.maxEnrollFrames)")
             } else {
                 guard self.liveEmbeddings.count < self.maxLiveFrames else { return }
                 self.liveEmbeddings.append(embedding)
                 self.currentEmbedding = embedding
-                print("✅ Live frame \(self.liveEmbeddings.count)/\(self.maxLiveFrames)")
+//                print("✅ Live frame \(self.liveEmbeddings.count)/\(self.maxLiveFrames)")
             }
         }
     }

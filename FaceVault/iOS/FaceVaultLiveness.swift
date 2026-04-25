@@ -57,6 +57,9 @@ public class FaceVaultLiveness: NSObject {
     
     private var faceLostTimer: Timer?
     private var faceDetected = false
+    
+    private var lastFrameTime: Double = 0
+    private var currentFPS: Float = 60.0
 
     // Challenge sequence
     private var challengeQueue: [LivenessChallenge] = []
@@ -64,6 +67,8 @@ public class FaceVaultLiveness: NSObject {
     private var currentFaceAnchor: ARFaceAnchor?
     
     private var latestDepthData: AVDepthData?
+    private let livenessV4 = FaceVaultLivenessV4Bridge()
+    private var lastV4FrameTime: Date = .distantPast
 
     public private(set) var isRunning = false
     
@@ -228,10 +233,16 @@ public class FaceVaultLiveness: NSObject {
     public var currentARFrame: ARFrame? {
         return session?.currentFrame
     }
-
-//    private var arSession: ARSession? {
-//        return sceneView?.session
-//    }
+    
+    public func evaluateBiologicalLiveness() -> [AnyHashable: Any]? {
+        guard livenessV4.hasEnoughData() else {
+            FaceVaultLogger.log("rPPG — not enough data yet", level: .warning)
+            return nil
+        }
+        let result = livenessV4.evaluate()
+        FaceVaultLogger.log("rPPG — BPM: \(result["heartRateBPM"] ?? 0) isLive: \(result["isLive"] ?? false)")
+        return result
+    }
 
 }
 
@@ -294,13 +305,52 @@ extension FaceVaultLiveness: ARSessionDelegate {
             guard let self else { return }
             if let pixelBuffer = session.currentFrame?.capturedImage {
                 self.delegate?.liveness(self, didCaptureFrame: pixelBuffer)
+
+                // Feed into rPPG — throttle to 30fps
+//                let now = Date()
+//                if now.timeIntervalSince(self.lastV4FrameTime) > 0.033 {
+//                    self.lastV4FrameTime = now
+//                    let timestamp = session.currentFrame?.timestamp ?? 0
+//
+//                    
+//                    print("🫀 rPPG — enough data! Evaluating...")
+//                    let result = self.livenessV4.evaluate()
+//                    print("🫀 rPPG result — \(result ?? [:])")
+//
+//
+//                }
+                let timestamp = session.currentFrame?.timestamp ?? 0
+                if lastFrameTime > 0 {
+                    let delta = timestamp - lastFrameTime
+                    if delta > 0 {
+                        currentFPS = Float(1.0 / delta)
+                        // Clamp to reasonable range
+                        currentFPS = min(max(currentFPS, 24.0), 120.0)
+                    }
+                }
+                lastFrameTime = timestamp
+
+                self.livenessV4.processFrame(
+                    pixelBuffer,
+                    timestamp: timestamp,
+                    fps: currentFPS
+                )
+                
+                // Check duration and evaluate
+                let duration = self.livenessV4.scanDuration()
+                print("🫀 Swift scanDuration: \(duration) fps:\(currentFPS)")
+
+                if self.livenessV4.hasEnoughData() {
+                    print("🫀 rPPG — enough data! Evaluating...")
+                    let result = self.livenessV4.evaluate()
+                    print("🫀 rPPG result — \(result ?? [:])")
+                }
+
             }
-            
             if let depth = session.currentFrame?.capturedDepthData {
                 self.latestDepthData = depth
             }
         }
-        
 
         DispatchQueue.main.async { [weak self] in
             self?.evaluate(blendShapes: blendShapes, headYaw: yaw)

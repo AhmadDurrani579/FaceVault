@@ -83,6 +83,7 @@
 			);
 			publicHeaders = (
 				Core/FaceVaultGeometricBridge.h,
+				Core/FaceVaultLivenessV4Bridge.h,
 				Core/FaceVaultPreprocessorBridge.h,
 				FaceVault.h,
 				iOS/FaceVaultDecisionBridge.h,
