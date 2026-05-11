@@ -11,69 +11,61 @@
 namespace FaceVault {
 
 FaceVaultLivenessV4::FaceVaultLivenessV4() {
-    _rppg.setBufferSize(300); // 60 frames = ~10 seconds
+    _rppg.setBufferSize(600);
 }
 
 void FaceVaultLivenessV4::processFrame(
     const cv::Mat& irFrame,
     double timestamp,
     float fps) {
-
+//    if (_evaluated) return;
     // Feed frame into rPPG processor
     _fps = fps;
+    _lastFrame = irFrame.clone(); // ← store latest frame
     _rppg.processFrame(irFrame, timestamp);
 }
 
 bool FaceVaultLivenessV4::hasEnoughData() const {
     // Use internal scan duration instead of signal timestamps
-    return _rppg.scanDuration() >= 5.0;
+    return _rppg.scanDuration() >= 9.0;
 }
 
 LivenessV4Result FaceVaultLivenessV4::evaluate() {
+//    _evaluated = true;
     LivenessV4Result result;
     result.isLive = false;
     result.pulseDetected = false;
     result.screenDetected = false;
     result.confidence = 0.0f;
 
-    // Use scanDuration not hasEnoughData
     double duration = _rppg.scanDuration();
-    float quality = _rppg.signalQuality();
-    
-    printf("🫀 C++ scanDuration=%.1f quality=%.2f\n",
-           duration, quality);
-
     if (duration < 5.0) {
         result.rejectReason = "Insufficient data";
         return result;
     }
 
-    // Get signal
+    // Lock 3 — FFT screen detection
+    // Run on latest frame
+    if (!_lastFrame.empty()) {
+        bool screenDetected = checkMoirePattern(_lastFrame);
+        if (screenDetected) {
+            result.screenDetected = true;
+            result.rejectReason = "Screen detected";
+            printf("[FaceVault] Lock 3 — screen detected!\n");
+            return result;
+        }
+    }
+
+    // Lock 1 — biological pulse
     rPPGSignal signal = _rppg.getSignal();
-    
-    printf("🫀 C++ signal.chrom size=%zu\n", signal.chrom.size());
-    printf("🫀 C++ signal duration=%.1f\n", signal.duration());
-    
     if (signal.chrom.size() < 30) {
         result.rejectReason = "Signal too short";
         return result;
     }
 
-    if (signal.chrom.empty()) {
-        result.rejectReason = "No signal";
-        return result;
-    }
-
-    // Process signal
     SignalResult signalResult = _signal.processRPPG(
-        signal.chrom,
-        _fps
+        signal.chrom, _fps
     );
-
-    printf("🫀 C++ BPM=%.1f confidence=%.2f valid=%d\n",
-           signalResult.heartRate.bpm,
-           signalResult.heartRate.confidence,
-           signalResult.heartRate.isValid);
 
     result.heartRateBPM = signalResult.heartRate.bpm;
 
@@ -96,45 +88,52 @@ double FaceVaultLivenessV4::scanDuration() const {
 bool FaceVaultLivenessV4::checkBiologicalPulse(
     const SignalResult& result) {
 
-    if (!result.heartRate.isValid) return false;
-    if (result.heartRate.bpm < 40.0f) return false;
-    if (result.heartRate.bpm > 180.0f) return false;
-    
-    // Lower confidence threshold for rPPG
-    // rPPG is noisier than finger PPG
-    // 0.05 = 5% is enough for face rPPG
-    if (result.heartRate.confidence < 0.05f) return false;
+    if (!result.heartRate.isValid) {
+        printf("[FaceVault] rPPG — rejected: invalid signal\n");
+        return false;
+    }
+    if (result.heartRate.bpm < 40.0f) {
+        printf("[FaceVault] rPPG — rejected: BPM too low (%.1f)\n",
+               result.heartRate.bpm);
+        return false;
+    }
+    if (result.heartRate.bpm > 180.0f) {
+        printf("[FaceVault] rPPG — rejected: BPM too high (%.1f)\n",
+               result.heartRate.bpm);
+        return false;
+    }
+    if (result.heartRate.confidence < 0.01f) {
+        printf("[FaceVault] rPPG — rejected: low confidence (%.2f)\n",
+               result.heartRate.confidence);
+        return false;
+    }
 
+    printf("[FaceVault] rPPG — passed: BPM=%.1f confidence=%.2f\n",
+           result.heartRate.bpm,
+           result.heartRate.confidence);
     return true;
 }
 
 bool FaceVaultLivenessV4::checkMoirePattern(
     const cv::Mat& irFrame) {
 
-    // Lock 3 — FFT screen detection
-    // Convert to float
+    if (irFrame.empty()) return false;
+
+    cv::Mat gray;
+    if (irFrame.channels() == 3) {
+        cv::cvtColor(irFrame, gray, cv::COLOR_BGR2GRAY);
+    } else if (irFrame.channels() == 4) {
+        cv::cvtColor(irFrame, gray, cv::COLOR_BGRA2GRAY);
+    } else {
+        gray = irFrame.clone();
+    }
+
     cv::Mat floatFrame;
-    irFrame.convertTo(floatFrame, CV_32F);
+    gray.convertTo(floatFrame, CV_32F);
 
-    // Apply DFT
     cv::Mat dft;
-    cv::dft(floatFrame, dft,
-            cv::DFT_COMPLEX_OUTPUT);
+    cv::dft(floatFrame, dft, cv::DFT_COMPLEX_OUTPUT);
 
-    // Shift zero frequency to center
-    int cx = dft.cols / 2;
-    int cy = dft.rows / 2;
-
-    cv::Mat q0(dft, cv::Rect(0, 0, cx, cy));
-    cv::Mat q1(dft, cv::Rect(cx, 0, cx, cy));
-    cv::Mat q2(dft, cv::Rect(0, cy, cx, cy));
-    cv::Mat q3(dft, cv::Rect(cx, cy, cx, cy));
-
-    cv::Mat tmp;
-    q0.copyTo(tmp); q3.copyTo(q0); tmp.copyTo(q3);
-    q1.copyTo(tmp); q2.copyTo(q1); tmp.copyTo(q2);
-
-    // Compute magnitude
     cv::Mat planes[2];
     cv::split(dft, planes);
     cv::Mat magnitude;
@@ -143,20 +142,32 @@ bool FaceVaultLivenessV4::checkMoirePattern(
     // Log scale
     magnitude += cv::Scalar::all(1);
     cv::log(magnitude, magnitude);
-    cv::normalize(magnitude, magnitude,
-                  0, 1, cv::NORM_MINMAX);
 
-    // Check for sharp periodic peaks
-    // = screen pixel grid signature
-    double maxVal;
-    cv::minMaxLoc(magnitude, nullptr, &maxVal);
+    // DON'T normalise — use raw values
+    // Calculate mean and std deviation
+    cv::Scalar mean, stddev;
+    cv::meanStdDev(magnitude, mean, stddev);
 
-    // Sharp peak > 0.85 = likely screen
-    return maxVal > 0.85;
+    // Screen has sharp isolated peaks
+    // = high std deviation relative to mean
+    // Real face has distributed energy
+    // = lower std deviation relative to mean
+
+    double ratio = stddev[0] / (mean[0] + 1e-6);
+
+    printf("[FaceVault] Lock 3 FFT — mean=%.3f std=%.3f ratio=%.3f\n",
+           mean[0], stddev[0], ratio);
+
+    // Screen = ratio > threshold
+    // Real face = ratio < threshold
+    // Threshold needs calibration from tests
+    return ratio > 1.5;
 }
 
 void FaceVaultLivenessV4::reset() {
     _rppg.reset();
+//    _evaluated = false; // ← reset flag
+    _lastFrame.release();
 }
 
 } // namespace FaceVault

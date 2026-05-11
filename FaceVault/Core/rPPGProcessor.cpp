@@ -9,6 +9,7 @@
 #include <cmath>
 #include <numeric>
 #include <algorithm>
+#include <CoreFoundation/CoreFoundation.h>
 
 namespace FaceVault {
 
@@ -26,8 +27,6 @@ rPPGProcessor::~rPPGProcessor() {}
 
 rPPGFrame rPPGProcessor::processFrame(const cv::Mat& frame,
                                        double timestamp) {
-    printf("🫀 rPPG processFrame — warmup=%d timestamp=%.1f empty=%d\n",
-           _warmupFrames, timestamp, frame.empty() ? 1 : 0);
 
     rPPGFrame result;
     result.timestamp    = timestamp;
@@ -44,6 +43,8 @@ rPPGFrame rPPGProcessor::processFrame(const cv::Mat& frame,
     _warmupFrames++;
     if (_warmupFrames == 1) {
         _scanStartTime = timestamp;
+        _wallClockStart = CFAbsoluteTimeGetCurrent();  // ← wall clock
+
     }
 
     // Skip first 15 frames — camera stabilisation
@@ -102,8 +103,8 @@ rPPGFrame rPPGProcessor::processFrame(const cv::Mat& frame,
                                      _runningRedMean,
                                      _runningGreenMean,
                                      _runningBlueMean);
-    printf("🫀 chrom=%.4f rNorm=%.4f gNorm=%.4f bNorm=%.4f\n",
-           result.chromSignal, rNorm, gNorm, bNorm);
+//    printf("🫀 chrom=%.4f rNorm=%.4f gNorm=%.4f bNorm=%.4f\n",
+//           result.chromSignal, rNorm, gNorm, bNorm);
 
     result.isValid = true;
 
@@ -261,10 +262,10 @@ float rPPGProcessor::signalQuality() const {
 // ── Scan duration ─────────────────────────────────────────────────────────
 
 double rPPGProcessor::scanDuration() const {
-    if (_buffer.empty()) return 0.0;
-    if (_scanStartTime <= 0) return 0.0;
-    return _buffer.back().timestamp - _scanStartTime;
+    if (_wallClockStart <= 0.0) return 0.0;
+    return CFAbsoluteTimeGetCurrent() - _wallClockStart;
 }
+
 
 // ── Reset ─────────────────────────────────────────────────────────────────
 
@@ -272,6 +273,7 @@ void rPPGProcessor::reset() {
     _buffer.clear();
     _warmupFrames     = 0;
     _scanStartTime    = 0.0;
+    _wallClockStart   = 0.0;
     _runningRedMean   = 0.0f;
     _runningGreenMean = 0.0f;
     _runningBlueMean  = 0.0f;

@@ -106,11 +106,17 @@ public class FaceVaultCamera: NSObject {
     }
 
     
-    public func stop() {
-        guard session.isRunning else { return }
-        DispatchQueue.global(qos: .userInteractive).async {
-            self.session.stopRunning()
-            self.isRunning = false
+    func stop(completion: (() -> Void)? = nil) {
+        guard isRunning else {
+            completion?()
+            return
+        }
+        queue.async { [weak self] in
+            self?.captureSession.stopRunning()
+            self?.isRunning = false
+            DispatchQueue.main.async {
+                completion?()
+            }
         }
     }
     

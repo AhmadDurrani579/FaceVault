@@ -61,12 +61,14 @@ public class FaceVaultSDK: NSObject {
     
     private var capturedZones: Set<String> = []
     private let totalZones = 5
+    private var lastZoneCheckTime: Date = .distantPast
 
     public var onContinuousAuthStopped: (() -> Void)? {
         didSet {
             continuousAuth.onStopped = onContinuousAuthStopped
         }
     }
+
 
     // MARK: - Init
     public override init() {
@@ -100,17 +102,22 @@ public class FaceVaultSDK: NSObject {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             
+            // Warm up models
             var pixelBuffer: CVPixelBuffer?
             CVPixelBufferCreate(nil, 112, 112, kCVPixelFormatType_32BGRA, nil, &pixelBuffer)
-            
             if let buffer = pixelBuffer {
                 _ = self.embedder.generateEmbedding(from: buffer)
             }
-            FaceVaultLogger.log("SDK ready")
+            
+            // Load embedding once — stays in memory for entire session
+            if let stored = self.storage.loadEmbedding() {
+                self.storedEmbedding = stored
+                FaceVaultLogger.log("[FaceVault] storedEmbedding loaded — \(stored.count) dims")
 
-            DispatchQueue.main.async {
-                completion()
             }
+            
+            FaceVaultLogger.log("SDK ready")
+            DispatchQueue.main.async { completion()  }
         }
     }
     
@@ -140,9 +147,9 @@ public class FaceVaultSDK: NSObject {
 
         FaceVaultLogger.log("Enrollment started")
         
-        print("🔵 enroll() called — isEnrolling = \(isEnrolling)")
+//        print("🔵 enroll() called — isEnrolling = \(isEnrolling)")
         isEnrolling = true
-        print("🔵 isEnrolling set to true")
+//        print("🔵 isEnrolling set to true")
         enrollCompleted = false
         enrollCompletion = completion
         currentEmbedding = nil
@@ -153,6 +160,7 @@ public class FaceVaultSDK: NSObject {
         previewView?.showMessage("Position your face in the oval")
         
         // Start ARKit IMMEDIATELY
+        liveness.isEnrollMode = true
         liveness.startEnrollMode()
         attachLivenessPreview()
         
@@ -180,7 +188,10 @@ public class FaceVaultSDK: NSObject {
         } else if pitch < -0.2 {
             zone = "down"
         }
-        
+        let now = Date()
+        guard now.timeIntervalSince(lastZoneCheckTime) > 0.1 else { return }
+        lastZoneCheckTime = now
+
         guard !zone.isEmpty, !capturedZones.contains(zone) else { return }
         
         // Delay between zone captures — feels more deliberate
@@ -209,44 +220,49 @@ public class FaceVaultSDK: NSObject {
             }
         }
     }
-
     
     private func finishEnroll(completion: @escaping (Bool) -> Void) {
         guard !enrollCompleted else { return }
         enrollCompleted = true
         
-        // Stop ARKit first
+        // Capture mesh BEFORE stopping ARKit
+        let meshToSave: [SIMD3<Float>]
+        if let anchor = liveness.latestFaceAnchor {
+            let vertices = anchor.geometry.vertices
+            meshToSave = (0..<vertices.count).map { vertices[$0] }
+        } else {
+            meshToSave = []
+        }
+        
+        // Stop ARKit
         liveness.stop()
         
         guard !enrollEmbeddings.isEmpty else {
             FaceVaultLogger.log("Enrollment failed — no frames captured", level: .error)
-            previewView?.showMessage("❌ No face detected — try again")
+            previewView?.showMessage("No face detected — try again")
             completion(false)
             return
         }
         
-        previewView?.showMessage("✅ Scan complete — verifying identity...")
+        previewView?.showMessage("Scan complete — verifying identity...")
         
-        // Average embeddings
         let avgEmbedding = averageEmbeddings(enrollEmbeddings)
         
-        // Save AFTER ARKit stops — no conflict
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             
-            // Small delay — let ARKit fully release
-            Thread.sleep(forTimeInterval: 0.5)
+            Thread.sleep(forTimeInterval: 1.0)
             
             let saved = self.storage.saveEmbedding(avgEmbedding)
-            if let anchor = self.liveness.latestFaceAnchor {
-                let vertices = anchor.geometry.vertices
-                let points = (0..<vertices.count).map { vertices[$0] }
-                _ = self.storage.savePointCloud(points)
-            }
-
             self.storedEmbedding = avgEmbedding
-            FaceVaultLogger.log(saved ? "Enrollment complete — \(self.enrollEmbeddings.count) frames averaged" : "Enrollment failed — could not save embedding", level: saved ? .info : .error)
-
+            
+            // Save mesh captured before ARKit stopped
+            if !meshToSave.isEmpty {
+                let meshSaved = self.storage.savePointCloud(meshToSave)
+                FaceVaultLogger.log("Point cloud saved: \(meshSaved) — \(meshToSave.count) vertices")
+            } else {
+                FaceVaultLogger.log("Point cloud empty — skipping", level: .warning)
+            }
             
             DispatchQueue.main.async {
                 completion(saved)
@@ -272,41 +288,43 @@ public class FaceVaultSDK: NSObject {
 
     
     public func authenticate(completion: @escaping (FaceVaultResult) -> Void) {
-        #if targetEnvironment(simulator)
-        completion(.deniedInsufficientData)
-        return
-        #endif
         FaceVaultLogger.log("Authentication started")
         previewView?.showAuthenticationUI()
-
-        self.stop()
         
-        isEnrolling = false
-        onResult = completion
-        challengePassed = false
-        livenessScore = 0
-        currentEmbedding = nil
-        liveEmbeddings = []
-        
-        previewView?.showMessage("🔐 Authenticating...")
-        
-        // Load embedding in background — show UI immediately
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        // Chain: liveness stops → camera stops → reset → start fresh
+        liveness.stop { [weak self] in
             guard let self else { return }
-            
-            guard let stored = self.storage.loadEmbedding() else {
-                FaceVaultLogger.log("Authentication failed — no enrolled face", level: .error)
+            self.camera.stop { [weak self] in
+                guard let self else { return }
+                
+                // Reset AFTER hardware fully released
+                self.liveness.resetRPPG()
+                print("[FaceVault] resetRPPG called")
 
-                DispatchQueue.main.async { completion(.deniedInsufficientData) }
-                return
-            }
-            
-            self.storedEmbedding = stored
-            
-            DispatchQueue.main.async {
-                self.previewView?.showMessage("Position your face in the oval")
-                self.liveness.start()
-                self.attachLivenessPreview()
+                guard self.storedEmbedding != nil else {
+                    completion(.deniedInsufficientData)
+                    return
+                }
+                
+                self.isEnrolling = false
+                self.onResult = completion
+                self.challengePassed = false
+                self.livenessScore = 0
+                self.currentEmbedding = nil
+                self.liveEmbeddings = []
+                
+                DispatchQueue.main.async {
+                    self.previewView?.showMessage("Hold still...")
+                    self.previewView?.pauseARSceneView()
+                    self.liveness.isEnrollMode = false
+                    self.liveness.onARKitReady = { [weak self] in
+                        self?.attachLivenessPreview()
+                    }
+                    self.liveness.start()
+                    self.previewView?.attachCameraSession(
+                        self.liveness.rPPGCaptureSession
+                    )
+                }
             }
         }
     }
@@ -372,27 +390,71 @@ public class FaceVaultSDK: NSObject {
         return points
     }
     
+    private func challengeType(_ challenge: LivenessChallenge) -> FaceVaultChallengeType {
+        switch challenge {
+        case .blink:      return .blink
+        case .smile:      return .smile
+        case .openMouth:  return .openMouth
+        case .turnLeft:   return .turnLeft
+        case .turnRight:  return .turnRight
+        }
+    }
+
     
     // MARK: - Decision
     private func makeDecision() {
+        
+        // ── Hard fail checks ──────────────────────────────
+        
+        // Lock 3 — screen detection
+        if let screen = liveness.rPPGFinalResult?["screenDetected"] as? Bool,
+           screen == true {
+            FaceVaultLogger.log("Denied — Lock 3 screen detected", level: .warning)
+            DispatchQueue.main.async { [weak self] in
+                self?.onResult?(.deniedLiveness)
+                self?.stop()
+            }
+            return
+        }
+        
+        // Lock 1 — biological pulse
+        if let isLive = liveness.rPPGFinalResult?["isLive"] as? Bool,
+           isLive == false {
+            FaceVaultLogger.log("Denied — Lock 1 no pulse", level: .warning)
+            DispatchQueue.main.async { [weak self] in
+                self?.onResult?(.deniedLiveness)
+                self?.stop()
+            }
+            return
+        }
+        
+        // Challenge passed
+        guard challengePassed else {
+            FaceVaultLogger.log("Denied — challenge not passed", level: .warning)
+            DispatchQueue.main.async { [weak self] in
+                self?.onResult?(.deniedLiveness)
+                self?.stop()
+            }
+            return
+        }
+        
+        // ── Identity checks ───────────────────────────────
+        
         guard let enrolledMesh = storage.loadPointCloud() else {
-            print("❌ makeDecision — no enrolled mesh")
             DispatchQueue.main.async { [weak self] in
                 self?.onResult?(.requiresRetry)
             }
             return
         }
-        print("✅ makeDecision — enrolled mesh loaded: \(enrolledMesh.count) points")
-
+        
         guard let anchor = liveness.latestFaceAnchor else {
-            print("❌ makeDecision — no face anchor")
             DispatchQueue.main.async { [weak self] in
                 self?.onResult?(.requiresRetry)
             }
             return
         }
-        print("✅ makeDecision — face anchor ok")
-                let vertices = anchor.geometry.vertices
+        
+        let vertices = anchor.geometry.vertices
         let liveMesh = (0..<vertices.count).map { vertices[$0] }
         let depthValues = liveness.extractDepthValues()
         
@@ -404,7 +466,10 @@ public class FaceVaultSDK: NSObject {
             return
         }
         
-        let liveEmbedding = liveEmbeddings.isEmpty ? current : averageEmbeddings(liveEmbeddings)
+        let liveEmbedding = liveEmbeddings.isEmpty ?
+            current : averageEmbeddings(liveEmbeddings)
+        
+        // Lock 4 — geometric + IR check
         let geometricPassed = performGeometricAuth(
             enrolledMesh: enrolledMesh,
             liveMesh: liveMesh,
@@ -412,8 +477,7 @@ public class FaceVaultSDK: NSObject {
             enrolledEmbedding: stored,
             liveEmbedding: liveEmbedding
         )
-        print("🔷 geometricPassed: \(geometricPassed)")
-
+        
         guard geometricPassed else {
             DispatchQueue.main.async { [weak self] in
                 self?.onResult?(.deniedNoMatch)
@@ -422,30 +486,53 @@ public class FaceVaultSDK: NSObject {
             return
         }
         
-        let nsB = stored.map { NSNumber(value: $0) }
-        
-        // Use multi-frame averaging if we have enough frames
-        let embeddingScore: Float
-        
-        if liveEmbeddings.count >= 2 {
-            // Average multiple frames
-            let nsLive = liveEmbeddings.map { $0.map { NSNumber(value: $0) } }
-            embeddingScore = bridge.match(withAveraging: nsLive, stored: nsB)
-            FaceVaultLogger.log("Embedding score — \(String(format: "%.2f", embeddingScore)) (\(liveEmbeddings.count) frames averaged)")
+        // Lock 2 — micro-elasticity correlation
+        let elasticityBridge = FaceVaultElasticityBridge()
+        var elasticityPassed = true
+        var elasticityScore: Float = 1.0
 
-        } else if let current = currentEmbedding {
-            // Fallback — single frame
-            let nsA = current.map { NSNumber(value: $0) }
-            embeddingScore = bridge.cosineSimilarity(nsA, b: nsB)
-            FaceVaultLogger.log("Embedding score — \(String(format: "%.2f", embeddingScore)) (single frame)")
-
-        } else {
+        for (challenge, peaks) in liveness.capturedBlendShapePeaks {
+            let nspeaks = peaks.mapValues { NSNumber(value: $0) }
+            guard let result = elasticityBridge.evaluate(
+                nspeaks,
+                challenge: challengeType(challenge)
+            ) else { continue }
+            
+            if !result.passed {
+                elasticityPassed = false
+                FaceVaultLogger.log("Lock 2 failed — \(challenge): \(result.rejectReason ?? "")",
+                                   level: .warning)
+                break
+            }
+            elasticityScore = min(elasticityScore, result.score)
+        }
+        
+        guard elasticityPassed else {
             DispatchQueue.main.async { [weak self] in
-                self?.onResult?(.requiresRetry)
+                self?.onResult?(.deniedLiveness)
                 self?.stop()
             }
             return
         }
+        
+        // ArcFace embedding score
+        let embeddingScore: Float
+        if liveEmbeddings.count >= 2 {
+            let nsLive = liveEmbeddings.map { $0.map { NSNumber(value: $0) } }
+            let nsB = stored.map { NSNumber(value: $0) }
+            embeddingScore = bridge.match(withAveraging: nsLive, stored: nsB)
+        } else if let current = currentEmbedding {
+            let nsA = current.map { NSNumber(value: $0) }
+            let nsB = stored.map { NSNumber(value: $0) }
+            embeddingScore = bridge.cosineSimilarity(nsA, b: nsB)
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                self?.onResult?(.requiresRetry)
+            }
+            return
+        }
+        
+        // ── Final decision ────────────────────────────────
         
         let input = FaceVaultDecisionInput()
         input.embeddingScore     = embeddingScore
@@ -457,30 +544,29 @@ public class FaceVaultSDK: NSObject {
         let engine = FaceVaultDecisionBridge()
         let resultCode = engine.evaluate(input)
         
+        FaceVaultLogger.log("""
+        ━━━━━━━━━━━━━━━━━━━━━━━━
+        Decision Summary
+          Lock 1 rPPG:    \(liveness.rPPGFinalResult?["isLive"] as? Bool ?? false ? "PASS" : "FAIL")
+          Lock 2 Elastic: \(elasticityPassed ? "PASS" : "FAIL") (score: \(String(format: "%.2f", elasticityScore)))
+          Lock 3 FFT:     \(liveness.rPPGFinalResult?["screenDetected"] as? Bool ?? false ? "FAIL" : "PASS")
+          Lock 4 IR:      \(geometricPassed ? "PASS" : "FAIL")
+          Challenge:      \(challengePassed ? "PASS" : "FAIL")
+          ArcFace:        \(String(format: "%.2f", embeddingScore))
+          Result:         \(resultCode == 0 ? "AUTHENTICATED" : "DENIED")
+        ━━━━━━━━━━━━━━━━━━━━━━━━
+        """)
+        
         let faceVaultResult: FaceVaultResult
         switch resultCode {
-        case 0:
-            faceVaultResult = .authenticated(confidence: embeddingScore)
-            FaceVaultLogger.log("Authenticated — confidence: \(String(format: "%.2f", embeddingScore))")
-        case 1:
-            faceVaultResult = .deniedLiveness
-            FaceVaultLogger.log("Denied — liveness failed", level: .warning)
-        case 2:
-            faceVaultResult = .deniedNoMatch
-            FaceVaultLogger.log("Denied — face does not match", level: .warning)
-        case 3:
-            faceVaultResult = .deniedMultipleFaces
-            FaceVaultLogger.log("Denied — multiple faces", level: .warning)
-        case 4:
-            faceVaultResult = .deniedInsufficientData
-            FaceVaultLogger.log("Denied — insufficient data", level: .warning)
-        case 5:
-            faceVaultResult = .deniedTampered
-            FaceVaultLogger.log("Denied — security violation", level: .error)
-        default:
-            faceVaultResult = .requiresRetry
+        case 0:  faceVaultResult = .authenticated(confidence: embeddingScore)
+        case 1:  faceVaultResult = .deniedLiveness
+        case 2:  faceVaultResult = .deniedNoMatch
+        case 3:  faceVaultResult = .deniedMultipleFaces
+        case 4:  faceVaultResult = .deniedInsufficientData
+        case 5:  faceVaultResult = .deniedTampered
+        default: faceVaultResult = .requiresRetry
         }
-
         
         DispatchQueue.main.async { [weak self] in
             self?.stop()
@@ -496,8 +582,8 @@ public class FaceVaultSDK: NSObject {
         liveEmbedding: [Float]
     ) -> Bool {
         
-        print("🔷 enrolledEmbedding count: \(enrolledEmbedding.count) first: \(enrolledEmbedding.first ?? 0)")
-        print("🔷 liveEmbedding count: \(liveEmbedding.count) first: \(liveEmbedding.first ?? 0)")
+//        print("🔷 enrolledEmbedding count: \(enrolledEmbedding.count) first: \(enrolledEmbedding.first ?? 0)")
+//        print("🔷 liveEmbedding count: \(liveEmbedding.count) first: \(liveEmbedding.first ?? 0)")
 
         // Convert SIMD3<Float> to NSValue array
         let enrolledValues = enrolledMesh.map { point -> NSValue in
@@ -558,9 +644,9 @@ extension FaceVaultSDK: FaceVaultVisionDelegate {
         previewView?.hideMultipleFacesWarning()
 
         
-        if isEnrolling {
-            updateEnrollProgress(yaw: landmarks.yaw, pitch: landmarks.pitch)
-        }
+//        if isEnrolling {
+//            updateEnrollProgress(yaw: landmarks.yaw, pitch: landmarks.pitch)
+//        }
     }
     
     public func visionDidLoseFace(_ vision: FaceVaultVision) {
@@ -626,29 +712,20 @@ extension FaceVaultSDK: FaceVaultLivenessDelegate {
                     if self.isEnrolling {
                         guard !self.enrollCompleted else { return }
                         self.enrollCompleted = true
-                        
                         let saved = self.storage.saveEmbedding(validEmbedding)
                         self.storedEmbedding = validEmbedding
-                        
                         DispatchQueue.main.async {
                             self.stop()
                             self.enrollCompletion?(saved)
                         }
                     } else {
-                        let depthValues = liveness.extractDepthValues()
-                        print("🔷 makeDecision — depth values: \(depthValues.count)")
-
-                        guard !depthValues.isEmpty else {
-                            print("⚠️ FaceVault: No depth data yet — retrying")
-                            return
-                        }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                        // Don't wait for depth — just proceed
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            [weak self] in
                             self?.makeDecision()
                         }
-
                     }
                 }
-            
         case .failed(let reason):
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
@@ -843,9 +920,9 @@ extension FaceVaultSDK: FaceVaultLivenessDelegate {
 
     public func liveness(_ liveness: FaceVaultLiveness,
                          didUpdateHeadPose yaw: Float, pitch: Float) {
-        if isEnrolling {
-            updateEnrollProgress(yaw: yaw, pitch: pitch)
-        }
+//        if isEnrolling {
+//            updateEnrollProgress(yaw: yaw, pitch: pitch)
+//        }
     }
     
     // Add to FaceVaultLivenessDelegate conformance

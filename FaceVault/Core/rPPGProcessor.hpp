@@ -71,7 +71,8 @@ private:
     size_t _bufferSize;
     int _warmupFrames;
     double _scanStartTime;
-
+    double _wallClockStart = 0.0;
+    
     // CHROM algorithm
     // Cancels motion artifacts using all 3 channels
     float applyChrom(float rNorm,

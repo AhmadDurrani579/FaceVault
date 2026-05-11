@@ -54,8 +54,8 @@
 
     // Call C++ decision engine
     facevault::GeometricMatcher matcher;
-    printf("Bridge — enrolledEmb size: %zu first: %f\n", enrolledEmb.size(), enrolledEmb.empty() ? 0 : enrolledEmb[0]);
-    printf("Bridge — liveEmb size: %zu first: %f\n", liveEmb.size(), liveEmb.empty() ? 0 : liveEmb[0]);
+//    printf("Bridge — enrolledEmb size: %zu first: %f\n", enrolledEmb.size(), enrolledEmb.empty() ? 0 : enrolledEmb[0]);
+//    printf("Bridge — liveEmb size: %zu first: %f\n", liveEmb.size(), liveEmb.empty() ? 0 : liveEmb[0]);
 
     facevault::AuthResult result = matcher.decide(
         enrolled,
@@ -70,10 +70,10 @@
         *rejectReason = [NSString stringWithUTF8String:result.rejectReason.c_str()];
     }
 
-    printf("FaceVault: Geometric=%.4f Depth=%.4f Embedding=%.4f\n",
-           result.geometricScore,
-           result.depthVariance,
-           result.embeddingScore);
+//    printf("FaceVault: Geometric=%.4f Depth=%.4f Embedding=%.4f\n",
+//           result.geometricScore,
+//           result.depthVariance,
+//           result.embeddingScore);
 
     return result.authenticated ? YES : NO;
 }

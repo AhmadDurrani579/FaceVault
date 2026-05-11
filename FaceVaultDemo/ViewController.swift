@@ -41,9 +41,12 @@ class ViewController: UIViewController {
         sdk.enroll { success in
             DispatchQueue.main.async {
                 if success {
-                    self.startAuthentication()
+                    // Give ARKit time to fully release
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        self.startAuthentication()
+                    }
                 } else {
-                    self.previewView.showMessage(" Enrollment failed — try again")
+                    self.previewView.showMessage("Enrollment failed — try again")
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                         self.startEnrollment()
                     }
@@ -52,51 +55,54 @@ class ViewController: UIViewController {
         }
     }
     
-    // MARK: - Authentication
+    private let maxAuthRetries = 3
+    private var authRetryCount = 0
+
     private func startAuthentication() {
+        authRetryCount += 1
+        guard authRetryCount <= 3 else {
+            authRetryCount = 0
+            previewView.showMessage("Too many attempts — try again")
+            return
+        }
+        
         sdk.authenticate { result in
             DispatchQueue.main.async {
                 switch result {
                 case .authenticated(let confidence):
+                    self.authRetryCount = 0
                     self.onAuthenticated(confidence: confidence)
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                        self.sdk.estimateAge { result in
-                            if let result = result {
-                                print(" Age: \(result.estimatedAge)")
-                                print(" Range: \(result.ageRange)")
-                                print(" IsAdult: \(result.isAdult)")
-                            } else {
-                                print(" Age estimation failed — no pixel buffer")
-                            }
-                        }
-                    }
-
                     
-                case .deniedNoMatch:
-                    self.previewView.showMessage(" Face does not match")
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                case .deniedLiveness:
+                    self.previewView.showMessage("Liveness check failed")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                         self.startAuthentication()
                     }
                     
-                case .deniedLiveness:
-                    self.previewView.showMessage(" Liveness check failed")
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                case .deniedNoMatch:
+                    self.previewView.showMessage("Face does not match")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                         self.startAuthentication()
                     }
                     
                 case .deniedMultipleFaces:
-                    self.previewView.showMessage(" Multiple faces detected")
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                    self.previewView.showMessage("Multiple faces detected")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                         self.startAuthentication()
                     }
+                    
                 case .deniedInsufficientData:
-                    self.startEnrollment()
+                    self.previewView.showMessage("Please try again")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                        self.startAuthentication()
+
+                    }
                     
                 case .requiresRetry:
                     self.startAuthentication()
                     
                 case .deniedTampered:
-                    self.previewView.showMessage(" Security violation detected")
+                    self.previewView.showMessage("Security violation detected")
                 }
             }
         }

@@ -73,10 +73,24 @@ PreprocessResult FacePreprocessor::process(const ImageBuffer& frame,
     ImageBuffer toSegmentFinal = illuminated.data.empty() ? toSegment : illuminated;
 
     // Step 5 — segmentation
-    FaceSegmentor segmentor;
-    SegmentResult segResult = segmentor.segment(toSegmentFinal);
-    ImageBuffer toNormalize = segResult.success ?
-                              segResult.segmentedFace : toSegmentFinal;
+    ImageBuffer toNormalize = toSegmentFinal;
+
+    try {
+        if (!toSegmentFinal.data.empty() &&
+            toSegmentFinal.width > 0 &&
+            toSegmentFinal.height > 0) {
+            
+            FaceSegmentor segmentor;
+            SegmentResult segResult = segmentor.segment(toSegmentFinal);
+            
+            if (segResult.success && !segResult.segmentedFace.data.empty()) {
+                toNormalize = segResult.segmentedFace;
+            }
+        }
+    } catch (...) {
+        // Segmentation failed — use unmasked face
+        toNormalize = toSegmentFinal;
+    }
 
     // Step 6 — normalize
     ImageBuffer normalized = normalize(toNormalize);

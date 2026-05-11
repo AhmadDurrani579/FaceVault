@@ -78,15 +78,11 @@
     rect.rightEyeY = faceRect.rightEyeY;
 
     
-    NSLog(@"🔍 Calling preprocessor — width:%d height:%d channels:%d",
-          frame.width, frame.height, frame.channels);
 
     // Run C++ preprocessor
     facevault::FacePreprocessor preprocessor;
     facevault::PreprocessResult cResult = preprocessor.process(frame, rect);
     
-    NSLog(@"🔍 Preprocess result — success:%d quality:%.2f",
-          cResult.success, cResult.qualityScore);
 
     // Convert result back to ObjC
     FaceVaultPreprocessResult *result = [[FaceVaultPreprocessResult alloc] init];

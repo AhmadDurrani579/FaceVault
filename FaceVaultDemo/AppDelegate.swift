@@ -7,10 +7,13 @@
 
 import UIKit
 import FaceVault
+import Security
+import CryptoKit
 
 @main
 class AppDelegate: UIResponder, UIApplicationDelegate {
 
+    private let keyTag    = "com.facevault.embeddingkey"
 
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
@@ -18,6 +21,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // Override point for customization after application launch.
         return true
     }
+    
 
     // MARK: UISceneSession Lifecycle
 

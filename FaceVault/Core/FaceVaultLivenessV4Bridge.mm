@@ -21,7 +21,6 @@
     if (pixelBuffer == nil) return;
 
     OSType format = CVPixelBufferGetPixelFormatType(pixelBuffer);
-    NSLog(@"🫀 pixel format: %d", (int)format);
 
     CVPixelBufferLockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
 
@@ -70,7 +69,6 @@
         cv::cvtColor(nv12, rgb, code);
     }
     else {
-        NSLog(@"🫀 unknown format: %d", (int)format);
         CVPixelBufferUnlockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
         return;
     }
@@ -78,7 +76,6 @@
     CVPixelBufferUnlockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
 
     if (!rgb.empty()) {
-        NSLog(@"🫀 calling C++ processFrame size=%dx%d", rgb.cols, rgb.rows);
         _engine.processFrame(rgb, timestamp, fps);
     }
 }

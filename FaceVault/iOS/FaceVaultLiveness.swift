@@ -64,62 +64,174 @@ public class FaceVaultLiveness: NSObject {
     // Challenge sequence
     private var challengeQueue: [LivenessChallenge] = []
     private var completedChallenges: [LivenessChallenge] = []
+    private var challengeBlendShapeMax: [LivenessChallenge: [String: Float]] = [:]
+
     private var currentFaceAnchor: ARFaceAnchor?
     
     private var latestDepthData: AVDepthData?
     private let livenessV4 = FaceVaultLivenessV4Bridge()
     private var lastV4FrameTime: Date = .distantPast
+    
+    private var rPPGEvaluated = false
+    var rPPGFinalResult: [AnyHashable: Any]? = nil
+    
+    private var rPPGPhaseComplete = false
+    private var rPPGCollectionTimer: Timer?
 
     public private(set) var isRunning = false
+    public var isEnrollMode: Bool = false
     
+    private let rPPGCamera = FaceVaultRPPGCamera()
+    var onARKitReady: (() -> Void)?
+
     // MARK: - Init
     
     public var captureSession: ARSession? {
         return session
+    }
+    
+    public var rPPGCaptureSession: AVCaptureSession {
+        return rPPGCamera.captureSession
+    }
+
+    public var capturedBlendShapePeaks: [LivenessChallenge: [String: Float]] {
+        return challengeBlendShapeMax
     }
 
     public override init() {
         super.init()
     }
     
+    
     // MARK: - Start
+    // REPLACE start() — only the end changes, ARKit setup untouched
     public func start() {
         #if targetEnvironment(simulator)
-        print("⚠️ FaceVault: ARKit not available on simulator")
         return
         #endif
+        guard ARFaceTrackingConfiguration.isSupported else { return }
         
-        guard ARFaceTrackingConfiguration.isSupported else {
-            return
+        rPPGCollectionTimer?.invalidate()
+        rPPGCollectionTimer = nil
+        rPPGPhaseComplete = false
+
+
+        // Phase 1 — AVFoundation only, no ARKit, no Face ID conflict
+        rPPGCamera.delegate = self
+        rPPGCamera.start()
+        print("[FaceVault] Phase 1 — AVFoundation rPPG started")
+        
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let startTime = Date()
+
+            self.rPPGCollectionTimer = Timer.scheduledTimer(
+                withTimeInterval: 10.0,
+                repeats: false
+            ) { [weak self] _ in
+                guard let self else { return }
+                let elapsed = Date().timeIntervalSince(startTime)
+                print("[FaceVault] Timer fired — elapsed: \(elapsed)s")
+
+                // Lock rPPG before ARKit starts
+                self.rPPGPhaseComplete = true
+                self.rPPGCamera.stop()
+
+                if self.livenessV4.hasEnoughData() {
+                    self.rPPGFinalResult = self.livenessV4.evaluate()
+                    let bpm        = self.rPPGFinalResult?["heartRateBPM"]   as? Float  ?? 0
+                    let isLive     = self.rPPGFinalResult?["isLive"]         as? Bool   ?? false
+                    let pulse      = self.rPPGFinalResult?["pulseDetected"]  as? Bool   ?? false
+                    let screen     = self.rPPGFinalResult?["screenDetected"] as? Bool   ?? false
+                    let confidence = self.rPPGFinalResult?["confidence"]     as? Float  ?? 0
+                    let reason     = self.rPPGFinalResult?["rejectReason"]   as? String ?? ""
+
+                    FaceVaultLogger.log("""
+                    ━━━━━━━━━━━━━━━━━━━━━━━━
+                    rPPG Result (10s window)
+                      BPM:        \(String(format: "%.1f", bpm))
+                      isLive:     \(isLive)
+                      pulse:      \(pulse)
+                      screen:     \(screen)
+                      confidence: \(String(format: "%.2f", confidence))
+                      reason:     \(reason.isEmpty ? "passed" : reason)
+                    ━━━━━━━━━━━━━━━━━━━━━━━━
+                    """)
+                } else {
+                    let duration = self.livenessV4.scanDuration()
+                    print("[FaceVault] rPPG insufficient — scanDuration: \(duration)s")
+                }
+
+                // Phase 2 — now start ARKit for challenges
+                self.startARKit()
+            }
+            RunLoop.main.add(self.rPPGCollectionTimer!, forMode: .common)
         }
-        
+    }
+    
+    private func startARKit() {
         session = ARSession()
         session?.delegate = self
-        session?.delegateQueue = DispatchQueue(label: "com.facevault.arkit", qos: .userInteractive)
+        session?.delegateQueue = DispatchQueue(
+            label: "com.facevault.arkit",
+            qos: .userInteractive
+        )
         let config = ARFaceTrackingConfiguration()
         config.isLightEstimationEnabled = false
         if ARFaceTrackingConfiguration.supportsFrameSemantics(.sceneDepth) {
             config.frameSemantics.insert(.sceneDepth)
         }
         session?.run(config)
-        
         isRunning = true
-        generateChallengeQueue()
+        print("[FaceVault] Phase 2 — ARKit started, challenges begin")
+
+        // Give ARKit time to fully claim hardware before challenges start
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            guard let self else { return }
+            self.onARKitReady?()
+            self.generateChallengeQueue()
+        }
     }
+
+    private func waitForCameraRelease(retries: Int = 20,
+                                       completion: (() -> Void)?) {
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(
+            deadline: .now() + 0.2
+        ) { [weak self] in
+            if FaceVaultRPPGCamera.isFrontCameraAvailable() || retries <= 0 {
+                DispatchQueue.main.async { completion?() }
+            } else {
+                self?.waitForCameraRelease(retries: retries - 1,
+                                            completion: completion)
+            }
+        }
+    }
+
     
     // MARK: - Stop
-    public func stop() {
-        session?.pause()
-        session = nil
-        isRunning = false
+    public func stop(completion: (() -> Void)? = nil) {
+        rPPGCollectionTimer?.invalidate()
+        rPPGCollectionTimer = nil
+        rPPGPhaseComplete = false
+        
+        rPPGCamera.stop { [weak self] in
+            guard let self else { return }
+            self.session?.pause()
+            self.session = nil
+            self.isRunning = false
+            self.waitForCameraRelease(completion: completion)
+        }
     }
+
+
+
     
     // MARK: - Generate Random Challenge Queue
     private func generateChallengeQueue() {
         let all: [LivenessChallenge] = [.blink, .turnLeft, .turnRight, .smile, .openMouth]
-        // Always pick exactly 3 — shuffle and take first 3
         challengeQueue = all.shuffled()
         completedChallenges = []
+        challengeBlendShapeMax = [:]  // ← reset peaks
         startNextChallenge()
     }
     
@@ -169,6 +281,15 @@ public class FaceVaultLiveness: NSObject {
             return
         }
         
+        // Track maximum blend shape values during this challenge
+        var currentMax = challengeBlendShapeMax[challenge] ?? [:]
+        for (key, value) in blendShapes {
+            let floatVal = value.floatValue
+            let keyStr = key.rawValue
+            currentMax[keyStr] = max(currentMax[keyStr] ?? 0, floatVal)
+        }
+        challengeBlendShapeMax[challenge] = currentMax
+
         var passed = false
         
         switch challenge {
@@ -194,6 +315,7 @@ public class FaceVaultLiveness: NSObject {
         }
         
         if passed {
+            // Use accumulated maximums — not single frame snapshot
             completedChallenges.append(challenge)
             currentChallenge = nil
             startNextChallenge()
@@ -239,11 +361,19 @@ public class FaceVaultLiveness: NSObject {
             FaceVaultLogger.log("rPPG — not enough data yet", level: .warning)
             return nil
         }
-        let result = livenessV4.evaluate()
-        FaceVaultLogger.log("rPPG — BPM: \(result["heartRateBPM"] ?? 0) isLive: \(result["isLive"] ?? false)")
-        return result
+        if let result = rPPGFinalResult {
+            FaceVaultLogger.log("rPPG — BPM: \(result["heartRateBPM"] ?? 0) isLive: \(result["isLive"] ?? false)")
+        }
+        return rPPGFinalResult
     }
-
+    
+    public func resetRPPG() {
+        livenessV4.reset()
+        lastFrameTime = 0
+        currentFPS = 60.0
+        rPPGEvaluated = false
+        rPPGFinalResult = nil
+    }
 }
 
 // MARK: - ARSession Delegate
@@ -255,7 +385,6 @@ extension FaceVaultLiveness: ARSessionDelegate {
             .compactMap({ $0 as? ARFaceAnchor })
             .first else {
             currentFaceAnchor = nil
-            // Start timer — only fire lost after 1 second
             guard faceDetected else { return }
             
             if faceLostTimer == nil {
@@ -279,81 +408,63 @@ extension FaceVaultLiveness: ARSessionDelegate {
         faceLostTimer = nil
         faceDetected = true
         currentFaceAnchor = faceAnchor
+        
         // Pass anchor to delegate
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.delegate?.liveness(self, didDetectFaceAnchor: faceAnchor)
-            
             let vertices = faceAnchor.geometry.vertices
             let points = (0..<vertices.count).map { vertices[$0] }
             self.delegate?.liveness(self, didCaptureGeometry: points)
         }
         
-        // Existing code
+        // Blend shapes + head pose
         let blendShapes = faceAnchor.blendShapes
         let transform = faceAnchor.transform
         let yaw   = atan2(transform.columns.0.z, transform.columns.2.z)
         let pitch = asin(-transform.columns.1.z)
         
         DispatchQueue.main.async { [weak self] in
-            self?.delegate?.liveness(self!,
-                                      didUpdateHeadPose: yaw,
-                                      pitch: pitch)
+            guard let self else { return }
+            self.delegate?.liveness(self, didUpdateHeadPose: yaw, pitch: pitch)
+            self.evaluate(blendShapes: blendShapes, headYaw: yaw)
         }
         
+        // Embedding generation — high priority
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             if let pixelBuffer = session.currentFrame?.capturedImage {
                 self.delegate?.liveness(self, didCaptureFrame: pixelBuffer)
-
-                // Feed into rPPG — throttle to 30fps
-//                let now = Date()
-//                if now.timeIntervalSince(self.lastV4FrameTime) > 0.033 {
-//                    self.lastV4FrameTime = now
-//                    let timestamp = session.currentFrame?.timestamp ?? 0
-//
-//                    
-//                    print("🫀 rPPG — enough data! Evaluating...")
-//                    let result = self.livenessV4.evaluate()
-//                    print("🫀 rPPG result — \(result ?? [:])")
-//
-//
-//                }
-                let timestamp = session.currentFrame?.timestamp ?? 0
-                if lastFrameTime > 0 {
-                    let delta = timestamp - lastFrameTime
-                    if delta > 0 {
-                        currentFPS = Float(1.0 / delta)
-                        // Clamp to reasonable range
-                        currentFPS = min(max(currentFPS, 24.0), 120.0)
-                    }
-                }
-                lastFrameTime = timestamp
-
-                self.livenessV4.processFrame(
-                    pixelBuffer,
-                    timestamp: timestamp,
-                    fps: currentFPS
-                )
-                
-                // Check duration and evaluate
-                let duration = self.livenessV4.scanDuration()
-                print("🫀 Swift scanDuration: \(duration) fps:\(currentFPS)")
-
-                if self.livenessV4.hasEnoughData() {
-                    print("🫀 rPPG — enough data! Evaluating...")
-                    let result = self.livenessV4.evaluate()
-                    print("🫀 rPPG result — \(result ?? [:])")
-                }
-
             }
             if let depth = session.currentFrame?.capturedDepthData {
                 self.latestDepthData = depth
             }
         }
+        
+        // rPPG — low priority, never blocks embedding or UI
+        // Call rPPG when the enrollment is done
+        if !isEnrollMode {
+            DispatchQueue.global(qos: .background).async { [weak self] in
+                guard let self else { return }
+                guard !self.rPPGPhaseComplete else { return } // stop feeding after lock
+                guard let pixelBuffer = session.currentFrame?.capturedImage else { return }
+                let timestamp = session.currentFrame?.timestamp ?? 0
 
-        DispatchQueue.main.async { [weak self] in
-            self?.evaluate(blendShapes: blendShapes, headYaw: yaw)
+                if self.lastFrameTime > 0 {
+                    let delta = timestamp - self.lastFrameTime
+                    if delta > 0 {
+                        self.currentFPS = Float(1.0 / delta)
+                        self.currentFPS = min(max(self.currentFPS, 24.0), 120.0)
+                    }
+                }
+                self.lastFrameTime = timestamp
+
+                self.livenessV4.processFrame(
+                    pixelBuffer,
+                    timestamp: timestamp,
+                    fps: self.currentFPS
+                )
+            }
         }
     }
 
@@ -374,5 +485,35 @@ extension FaceVaultLiveness: ARSessionDelegate {
     }
     func livenessDidLoseFace(_ liveness: FaceVaultLiveness) {
         
+    }
+}
+
+extension FaceVaultLiveness: FaceVaultRPPGCameraDelegate {
+    func rPPGCamera(_ camera: FaceVaultRPPGCamera,
+                    didOutput sampleBuffer: CMSampleBuffer) {
+        guard !rPPGPhaseComplete else { return }
+        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        let timestamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds
+
+        // Skip frame if no face present
+        let request = VNDetectFaceRectanglesRequest()
+        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer,
+                                            orientation: .leftMirrored,
+                                            options: [:])
+        try? handler.perform([request])
+        guard request.results?.isEmpty == false else {
+            FaceVaultLogger.log("rPPG — no face, skipping frame")
+            return
+        }
+
+        if lastFrameTime > 0 {
+            let delta = timestamp - lastFrameTime
+            if delta > 0 {
+                currentFPS = Float(1.0 / delta)
+                currentFPS = min(max(currentFPS, 20.0), 30.0)
+            }
+        }
+        lastFrameTime = timestamp
+        livenessV4.processFrame(pixelBuffer, timestamp: timestamp, fps: currentFPS)
     }
 }

@@ -11,7 +11,7 @@ import AVFoundation
 
 public class FaceVaultPreviewView: UIView {
     
-    private let sceneView = ARSCNView()
+    private let cameraContainer = UIView()
     private let instructionLabel = UILabel()
     private var cameraPreviewLayer: AVCaptureVideoPreviewLayer?
     private var landmarkDots: [CAShapeLayer] = []
@@ -47,13 +47,18 @@ public class FaceVaultPreviewView: UIView {
     private func setupUI() {
         backgroundColor = .white
         
-        // ARKit camera — full screen behind
-        sceneView.frame = bounds
-        sceneView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        sceneView.automaticallyUpdatesLighting = false
-        sceneView.rendersCameraGrain = false
-        addSubview(sceneView)
+//        // ARKit camera — full screen behind
+//        sceneView.frame = bounds
+//        sceneView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+//        sceneView.automaticallyUpdatesLighting = false
+//        sceneView.rendersCameraGrain = false
+//        addSubview(sceneView)
         
+        cameraContainer.frame = bounds
+        cameraContainer.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        cameraContainer.backgroundColor = .black
+        addSubview(cameraContainer)
+
         // White overlay — covers everything outside oval
         whiteOverlay.backgroundColor = .white
         whiteOverlay.frame = bounds
@@ -128,6 +133,16 @@ public class FaceVaultPreviewView: UIView {
         layer.addSublayer(meshLayer)
     }
     
+    public func pauseARSceneView() {
+        DispatchQueue.main.async {
+            self.cameraContainer.subviews.forEach { $0.removeFromSuperview() }
+            self.cameraPreviewLayer?.removeFromSuperlayer()
+            self.cameraPreviewLayer = nil
+        }
+    }
+
+    private var sceneViewInitialised = false
+    
     public func showEnrollmentUI() {
         DispatchQueue.main.async {
             self.titleLabel.isHidden = false
@@ -152,14 +167,9 @@ public class FaceVaultPreviewView: UIView {
             self.subtitleLabel.isHidden = true
             self.whiteOverlay.isHidden = true
             self.backgroundColor = .black
-            self.sceneView.isHidden = false
             self.instructionLabel.textColor = .white
-            
-            // Show corner brackets
             self.setupCornerBrackets()
             self.updateCornerBrackets()
-            
-            // Show mesh layer
             self.meshLayer.isHidden = false
         }
     }
@@ -217,13 +227,15 @@ public class FaceVaultPreviewView: UIView {
     }
 
 
+    private var ringSetup = false
+
     public override func layoutSubviews() {
         super.layoutSubviews()
-        sceneView.frame = bounds
+        cameraContainer.frame = bounds
         whiteOverlay.frame = bounds
         meshLayer.frame = bounds
         
-        // Update oval cutout
+        // Oval cutout
         let ovalRect = CGRect(
             x: bounds.midX - 150,
             y: bounds.midY - 200,
@@ -239,7 +251,12 @@ public class FaceVaultPreviewView: UIView {
         whiteOverlay.layer.mask = maskLayer
         
         updateCornerBrackets()
-        setupProgressRing()
+        
+        // Only setup ring once — not on every layout pass
+        if !ringSetup && bounds.width > 0 {
+            setupProgressRing()
+            ringSetup = true
+        }
     }
     
     public func updateMesh(points: [CGPoint]) {
@@ -404,23 +421,29 @@ public class FaceVaultPreviewView: UIView {
     public func attachARSession(_ session: ARSession) {
         DispatchQueue.main.async {
             self.cameraPreviewLayer?.removeFromSuperlayer()
-            self.cameraPreviewLayer = nil
-            self.sceneView.isHidden = false
-            self.sceneView.session = session
-            // Make sure sceneView is behind segments
-            self.sendSubviewToBack(self.sceneView)
+            // Use AVCaptureVideoPreviewLayer via ARSession's capturedImage
+            // ARKit renders into its own Metal layer — attach via session
+            let arView = ARSCNView(frame: self.cameraContainer.bounds)
+            arView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            arView.automaticallyUpdatesLighting = false
+            arView.session = session
+            self.cameraContainer.subviews.forEach { $0.removeFromSuperview() }
+            self.cameraContainer.addSubview(arView)
+            self.cameraContainer.isHidden = false
+            self.sendSubviewToBack(self.cameraContainer)
         }
-
     }
     
     public func attachCameraSession(_ session: AVCaptureSession) {
         DispatchQueue.main.async {
-            self.sceneView.isHidden = true
+            self.cameraContainer.subviews.forEach { $0.removeFromSuperview() }
             let layer = AVCaptureVideoPreviewLayer(session: session)
             layer.videoGravity = .resizeAspectFill
-            layer.frame = self.bounds
-            self.layer.insertSublayer(layer, at: 0)
+            layer.frame = self.cameraContainer.bounds
+            self.cameraContainer.layer.insertSublayer(layer, at: 0)
             self.cameraPreviewLayer = layer
+            self.cameraContainer.isHidden = false
+            self.sendSubviewToBack(self.cameraContainer)
         }
     }
     
@@ -464,7 +487,8 @@ public class FaceVaultPreviewView: UIView {
     public func reset() {
         cameraPreviewLayer?.removeFromSuperlayer()
         cameraPreviewLayer = nil
-        sceneView.isHidden = true
+        cameraContainer.subviews.forEach { $0.removeFromSuperview() }
+        cameraContainer.isHidden = true
         instructionLabel.text = ""
         resetProgress()
         clearLandmarks()

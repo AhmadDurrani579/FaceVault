@@ -61,9 +61,11 @@ public class FaceVaultContinuousAuth: NSObject {
         
         FaceVaultLogger.log("Continuous auth started — interval:\(Int(interval))s duration:\(Int(maxDuration))s")
         
-        camera.start()
-        
-        DispatchQueue.main.async {
+        // Delay camera start — ARKit needs time to fully release
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            guard let self, self.isRunning else { return }
+            self.camera.start()
+            
             self.timer = Timer.scheduledTimer(
                 timeInterval: interval,
                 target: self,
@@ -230,6 +232,7 @@ extension FaceVaultContinuousAuth: FaceVaultVisionDelegate {
     public func vision(_ vision: FaceVaultVision,
                        didDetect landmarks: FaceLandmarks) {
         lastLandmarks = landmarks
+        consecutiveLostCount = 0  // ← reset on face found
         
         guard abs(landmarks.yaw) < 0.5 &&
               abs(landmarks.pitch) < 0.5 &&
@@ -239,9 +242,6 @@ extension FaceVaultContinuousAuth: FaceVaultVisionDelegate {
         }
         
         consecutiveGoodFrames += 1
-        
-        // Only unblur after 3 consecutive good frames
-        // Prevents false positives
         guard consecutiveGoodFrames >= 3 else { return }
         
         DispatchQueue.main.async {
@@ -252,7 +252,13 @@ extension FaceVaultContinuousAuth: FaceVaultVisionDelegate {
 
     public func visionDidLoseFace(_ vision: FaceVaultVision) {
         lastLandmarks = nil
-        consecutiveGoodFrames = 0  // ← reset
+        consecutiveGoodFrames = 0
+        consecutiveLostCount += 1
+        
+        // Only report lost after 3 consecutive lost frames
+        // Prevents false positive on camera startup
+        guard consecutiveLostCount >= 3 else { return }
+        
         FaceVaultLogger.log("Continuous auth — face lost", level: .warning)
         DispatchQueue.main.async {
             self.delegate?.continuousAuth(self, didDetect: .faceLost)

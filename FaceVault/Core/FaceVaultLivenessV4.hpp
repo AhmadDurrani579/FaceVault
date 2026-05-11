@@ -43,7 +43,9 @@ public:
 private:
     rPPGProcessor _rppg;
     SignalProcessor _signal;
+    cv::Mat _lastFrame;
     float _fps = 60.0f;
+//    bool _evaluated = false;
 
     // Lock 1 — pulse check
     bool checkBiologicalPulse(const SignalResult& result);

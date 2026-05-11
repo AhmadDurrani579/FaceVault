@@ -135,7 +135,6 @@ bool GeometricMatcher::isRealSkin(
     const std::vector<float>& depthValues,
     float threshold)
 {
-    // Filter invalid values
     std::vector<float> valid;
     for (float v : depthValues) {
         if (std::isfinite(v) && v > 0.0f) {
@@ -143,11 +142,49 @@ bool GeometricMatcher::isRealSkin(
         }
     }
     
-    if (valid.empty()) return false;
+    if (valid.size() < 100) return false;
     
+    // Check 1 — variance (existing)
     float variance = computeDepthVariance(valid);
-    printf("FaceVault: Depth variance — %f (valid samples: %zu)\n", variance, valid.size());
-    return variance > threshold;
+    if (variance < threshold) {
+        printf("[FaceVault] Lock 4 — flat surface (variance=%.6f)\n", variance);
+        return false;
+    }
+    
+    // Check 2 — depth range
+    // Real face: nose to ear spread ~0.05-0.15m
+    // Photo/screen: spread < 0.01m (essentially flat)
+    float minDepth = *std::min_element(valid.begin(), valid.end());
+    float maxDepth = *std::max_element(valid.begin(), valid.end());
+    float depthRange = maxDepth - minDepth;
+    
+    if (depthRange < 0.02f) {
+        printf("[FaceVault] Lock 4 — depth range too flat (range=%.4f)\n", depthRange);
+        return false;
+    }
+    
+    // Check 3 — nose prominence
+    // Sort depth values — real face has significant near values
+    // (nose tip) much closer than far values (ears/background)
+    std::vector<float> sorted = valid;
+    std::sort(sorted.begin(), sorted.end());
+    
+    // Bottom 5% should be significantly closer than top 5%
+    size_t pct5 = sorted.size() * 0.05f;
+    float nearMean = 0.0f, farMean = 0.0f;
+    
+    for (size_t i = 0; i < pct5; i++) nearMean += sorted[i];
+    for (size_t i = sorted.size() - pct5; i < sorted.size(); i++) farMean += sorted[i];
+    nearMean /= pct5;
+    farMean  /= pct5;
+    
+    float prominence = farMean - nearMean;
+    if (prominence < 0.03f) {
+        printf("[FaceVault] Lock 4 — no nose prominence (prominence=%.4f)\n", prominence);
+        return false;
+    }
+    
+    return true;
 }
 
 AuthResult GeometricMatcher::decide(
@@ -162,6 +199,7 @@ AuthResult GeometricMatcher::decide(
 {
     AuthResult result;
     result.authenticated = false;
+    
 
     // Gate 1 — Depth variance (photo/video/mask check)
     if (!isRealSkin(depthValues, depthThreshold)) {
@@ -185,14 +223,15 @@ AuthResult GeometricMatcher::decide(
         enrolledEmbedding,
         liveEmbedding
     );
-    printf("FaceVault: Raw embedding score — %f\n", result.embeddingScore);
+//    printf("FaceVault: Raw embedding score — %f\n", result.embeddingScore);
 
     if (result.embeddingScore < embeddingThreshold) {
         result.rejectReason = "Embedding mismatch — identity not confirmed";
         return result;
     }
+    printf("[FaceVault] Geometric RMS — %.6f (threshold=%.6f)\n",
+           result.geometricScore, geometricThreshold);
 
-    // All gates passed
     result.authenticated = true;
     result.rejectReason  = "";
     return result;

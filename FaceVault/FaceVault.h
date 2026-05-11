@@ -14,5 +14,5 @@
 #import <FaceVault/FaceVaultPreprocessorBridge.h>
 #import <FaceVault/FaceVaultGeometricBridge.h>
 #import <FaceVault/FaceVaultLivenessV4Bridge.h>
-
+#import <FaceVault/FaceVaultElasticityBridge.h>
 #endif /* FaceVault_h */
